@@ -1,0 +1,15 @@
+__pycache__/
+*.py[oc]
+.pytest_cache/
+build/
+dist/
+wheels/
+*.egg-info
+
+.venv
+.ipynb_checkpoints/
+.env
+models/
+
+
+
