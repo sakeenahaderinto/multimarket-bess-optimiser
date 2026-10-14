@@ -73,6 +73,8 @@ class BaseForecaster:
     FOLD_STEP = 48 * 7
     VAL_WINDOW = 48 * 7
     MIN_FOLD_ROWS = 48 * 7
+    INNER_VAL_WINDOW: int | None = None
+    MIN_INNER_TRAIN_ROWS: int | None = None
 
     # These columns are fixed delivery-day snapshots rather than ordinary shifts.
     GATE_ORIGIN_COLS: frozenset[str] = frozenset(
@@ -181,36 +183,80 @@ class BaseForecaster:
                 f"{target!r}.shift({lag_n}). Maximum residual: {maximum:.6f}"
             )
 
+    def _split_inner_validation(
+        self,
+        train_slice: pd.DataFrame,
+    ) -> tuple[pd.DataFrame, pd.DataFrame] | None:
+        """Split pre-origin history into older fit and recent tuning windows."""
+        if not train_slice.index.is_monotonic_increasing:
+            raise ValueError("Pre-origin training rows must be sorted chronologically")
+
+        inner_val_rows = (
+            self.VAL_WINDOW if self.INNER_VAL_WINDOW is None else self.INNER_VAL_WINDOW
+        )
+        min_inner_train_rows = (
+            self.MIN_FOLD_ROWS
+            if self.MIN_INNER_TRAIN_ROWS is None
+            else self.MIN_INNER_TRAIN_ROWS
+        )
+        if inner_val_rows <= 0 or min_inner_train_rows <= 0:
+            raise ValueError("Inner validation and training windows must be positive")
+        if len(train_slice) < min_inner_train_rows + inner_val_rows:
+            return None
+
+        inner_train = train_slice.iloc[:-inner_val_rows]
+        inner_validation = train_slice.iloc[-inner_val_rows:]
+        if inner_train.index.max() >= inner_validation.index.min():
+            raise ValueError("Inner training and validation timestamps must be disjoint")
+        return inner_train, inner_validation
+
     def _fit_quantile(
         self,
         q: float,
-        x_train: pd.DataFrame,
-        y_train: pd.Series,
-        x_val: pd.DataFrame,
-        y_val: pd.Series,
+        x_inner_train: pd.DataFrame,
+        y_inner_train: pd.Series,
+        x_inner_validation: pd.DataFrame,
+        y_inner_validation: pd.Series,
+        x_refit: pd.DataFrame,
+        y_refit: pd.Series,
+        x_outer_validation: pd.DataFrame,
     ) -> tuple[lgb.LGBMRegressor, np.ndarray, int]:
-        model = lgb.LGBMRegressor(
+        selection_model = lgb.LGBMRegressor(
             **LGBM_SHARED_PARAMS,
             alpha=q,
             n_estimators=CV_N_ESTIMATORS,
         )
-        model.fit(
-            x_train,
-            y_train,
-            eval_set=[(x_val, y_val)],
+        selection_model.fit(
+            x_inner_train,
+            y_inner_train,
+            eval_X=x_inner_validation,
+            eval_y=y_inner_validation,
             callbacks=[lgb.early_stopping(stopping_rounds=20, verbose=False)],
         )
-        best_iteration = int(model.best_iteration_ or CV_N_ESTIMATORS)
-        return model, model.predict(x_val), best_iteration
+        best_iteration = int(selection_model.best_iteration_ or CV_N_ESTIMATORS)
+
+        refit_model = lgb.LGBMRegressor(
+            **LGBM_SHARED_PARAMS,
+            alpha=q,
+            n_estimators=best_iteration,
+        )
+        refit_model.fit(x_refit, y_refit)
+        predictions = refit_model.predict(x_outer_validation)
+        return refit_model, predictions, best_iteration
 
     def train(self, df: pd.DataFrame) -> tuple[dict[float, lgb.LGBMRegressor], pd.DataFrame]:
-        """Run weekly-refit expanding-window CV and train final quantile models."""
+        """Run nested expanding-window CV and train final quantile models.
+
+        Each outer validation window remains untouched until scoring. Boosting
+        iterations are selected on a recent inner window drawn entirely from the
+        pre-origin training history, then the fold model is refit on all history
+        available before the outer forecast origin.
+        """
         logger.info("Starting walk-forward CV for %s", self.model_id)
         columns_needed = self.feature_cols + [self.target_col]
 
         fold_predictions: dict[float, list[float]] = {q: [] for q in QUANTILES}
         fold_actuals: list[float] = []
-        fold_ids: list[int] = []
         oof_predictions: dict[float, list[float]] = {q: [] for q in QUANTILES}
         oof_timestamps: list[pd.Timestamp] = []
         iterations: dict[float, list[int]] = {q: [] for q in QUANTILES}
@@ -236,29 +282,42 @@ class BaseForecaster:
                 fold_end : fold_end + self.VAL_WINDOW
             ].dropna(subset=columns_needed)
 
-            if len(train_slice) < self.MIN_FOLD_ROWS or validation_slice.empty:
+            inner_split = self._split_inner_validation(train_slice)
+            if inner_split is None or validation_slice.empty:
                 folds_skipped += 1
                 continue
 
-            x_train = train_slice[self.feature_cols]
-            y_train = train_slice[self.target_col]
-            x_val = validation_slice[self.feature_cols]
-            y_val = validation_slice[self.target_col]
+            inner_train_slice, inner_validation_slice = inner_split
+            if train_slice.index.max() >= validation_slice.index.min():
+                raise ValueError(
+                    "Pre-origin training timestamps overlap the outer validation window"
+                )
+
+            x_inner_train = inner_train_slice[self.feature_cols]
+            y_inner_train = inner_train_slice[self.target_col]
+            x_inner_validation = inner_validation_slice[self.feature_cols]
+            y_inner_validation = inner_validation_slice[self.target_col]
+            x_refit = train_slice[self.feature_cols]
+            y_refit = train_slice[self.target_col]
+            x_outer_validation = validation_slice[self.feature_cols]
+            y_outer_validation = validation_slice[self.target_col]
 
             for q in QUANTILES:
                 _, predictions, best_iteration = self._fit_quantile(
                     q,
-                    x_train,
-                    y_train,
-                    x_val,
-                    y_val,
+                    x_inner_train,
+                    y_inner_train,
+                    x_inner_validation,
+                    y_inner_validation,
+                    x_refit,
+                    y_refit,
+                    x_outer_validation,
                 )
                 fold_predictions[q].extend(predictions.tolist())
                 oof_predictions[q].extend(predictions.tolist())
                 iterations[q].append(best_iteration)
 
-            fold_actuals.extend(y_val.to_list())
-            fold_ids.extend([fold_number] * len(y_val))
+            fold_actuals.extend(y_outer_validation.to_list())
             oof_timestamps.extend(validation_slice.index.to_list())
             folds_run += 1
 
@@ -266,9 +325,12 @@ class BaseForecaster:
                 elapsed = time.time() - started
                 remaining = elapsed / fold_number * (total_folds - fold_number)
                 logger.info(
-                    "Fold %d/%d, train=%d, validation=%d, estimated remaining %.0fs",
+                    "Fold %d/%d, inner train=%d, inner validation=%d, "
+                    "refit=%d, outer validation=%d, estimated remaining %.0fs",
                     fold_number,
                     total_folds,
+                    len(inner_train_slice),
+                    len(inner_validation_slice),
                     len(train_slice),
                     len(validation_slice),
                     remaining,
