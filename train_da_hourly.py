@@ -42,9 +42,7 @@ def build_and_save_features() -> pd.DataFrame:
 
     features = build_da_hourly_features(
         da_df_hourly=da_df,
-        accepted_offer_volume_30min=bm_df["totalAcceptedOfferVolume"],
-        bm_imbalance_30min=bm_df["netImbalanceVolume"],
-        bm_sell_price_30min=bm_df["systemSellPrice"],
+        bm_df=bm_df,
         weather_df=weather_df,
     )
 

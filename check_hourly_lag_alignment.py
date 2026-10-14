@@ -2,16 +2,10 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 
 from config import settings
-from features.pipeline_da_hourly import (
-    build_da_hourly_features,
-    complete_hour_mean,
-    complete_hour_sum,
-)
-from market_calendar import last_complete_hour_start_times
+from features.pipeline_da_hourly import build_da_hourly_features
 
 
 def _maximum_residual(actual: pd.Series, expected: pd.Series) -> float:
@@ -36,37 +30,29 @@ def main() -> None:
 
     features = build_da_hourly_features(
         da,
-        bm["totalAcceptedOfferVolume"],
-        bm["netImbalanceVolume"],
-        bm["systemSellPrice"],
+        bm.reset_index(),
         weather,
     )
-    snapshots = last_complete_hour_start_times(features.index)
-
-    expected_price = pd.Series(
-        features["price"].reindex(snapshots).to_numpy(float),
-        index=features.index,
-    )
+    # DA price lag retains target-hour shape because the entire previous-day DA
+    # auction curve was cleared and published before the current delivery-day gate.
+    expected_price = features["price"].shift(24)
     residual = _maximum_residual(features["price_lag_24"], expected_price)
     print(f"price_lag_24 maximum residual: {residual:.8f}")
     assert residual < 1e-6
 
-    hourly_offer = complete_hour_sum(bm["totalAcceptedOfferVolume"])
-    expected_offer = pd.Series(
-        hourly_offer.reindex(snapshots).to_numpy(float),
-        index=features.index,
-    )
-    residual = _maximum_residual(
-        features["accepted_offer_volume_lag_24"],
-        expected_offer,
-    )
-    print(f"accepted_offer_volume_lag_24 maximum residual: {residual:.8f}")
-    assert residual < 1e-6
+    # Every BM-derived value must come from a vintage published by its origin.
+    violations = (
+        features["bm_feature_max_created_time"] > features["bm_feature_origin"]
+    ).fillna(False)
+    print(f"BM publication-origin violations: {int(violations.sum())}")
+    assert not violations.any()
 
-    hourly_bm = complete_hour_mean(bm["systemSellPrice"])
+    # The spread combines the as-of BM snapshot with DA at the snapshot's true
+    # settlement hour, rather than assuming an unavailable 08:00/08:30 value.
+    snapshot_starts = pd.DatetimeIndex(features["bm_snapshot_start_time"])
     expected_spread = pd.Series(
-        hourly_bm.reindex(snapshots).to_numpy(float)
-        - features["price"].reindex(snapshots).to_numpy(float),
+        features["bm_price_lag_24"].to_numpy(float)
+        - features["price"].reindex(snapshot_starts).to_numpy(float),
         index=features.index,
     )
     residual = _maximum_residual(features["spread_lag_24"], expected_spread)

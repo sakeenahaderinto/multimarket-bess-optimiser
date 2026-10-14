@@ -5,7 +5,6 @@ from __future__ import annotations
 import pandas as pd
 
 from market_calendar import (
-    last_complete_half_hour_start_times,
     last_complete_hour_start_times,
 )
 
@@ -20,27 +19,22 @@ def _check_required_columns(df: pd.DataFrame, required: list[str], source: str) 
 
 
 def create_market_features(
-    bm_df: pd.DataFrame,
     da_df: pd.DataFrame,
     weather_df: pd.DataFrame,
     canonical_index: pd.DatetimeIndex,
+    bm_asof: pd.DataFrame,
+    bm_snapshot_lag: int,
 ) -> pd.DataFrame:
-    """Create BM, wind-change and BM-minus-DA spread snapshot features."""
-    _check_required_columns(
-        bm_df,
-        ["netImbalanceVolume", "systemSellPrice"],
-        "bm_df",
-    )
+    """Create weather change and a publication-safe BM-minus-DA snapshot."""
     _check_required_columns(da_df, ["value"], "da_df")
     _check_required_columns(weather_df, ["wind_speed_10m"], "weather_df")
-    market_df = pd.DataFrame(index=canonical_index)
-    half_hour_times = last_complete_half_hour_start_times(canonical_index)
-    hour_times = last_complete_hour_start_times(canonical_index)
-
-    bm_imbalance = bm_df["netImbalanceVolume"].reindex(canonical_index)
-    market_df["bm_imbalance_volume_lag_48"] = (
-        bm_imbalance.reindex(half_hour_times).to_numpy(dtype=float)
+    _check_required_columns(
+        bm_asof,
+        ["bm_snapshot_start_time", f"bm_price_lag_{bm_snapshot_lag}"],
+        "bm_asof",
     )
+    market_df = pd.DataFrame(index=canonical_index)
+    hour_times = last_complete_hour_start_times(canonical_index)
 
     weather = weather_df.sort_index()
     weather = weather[~weather.index.duplicated(keep="last")]
@@ -56,10 +50,10 @@ def create_market_features(
         da_df["value"]
         .resample("30min")
         .ffill(limit=1)
-        .reindex(canonical_index)
     )
-    bm_price = bm_df["systemSellPrice"].reindex(canonical_index)
-    da_at_cutoff = da_price.reindex(half_hour_times).to_numpy(dtype=float)
-    bm_at_cutoff = bm_price.reindex(half_hour_times).to_numpy(dtype=float)
-    market_df["spread_lag_48"] = bm_at_cutoff - da_at_cutoff
+    da_at_snapshot = da_price.reindex(
+        pd.DatetimeIndex(bm_asof["bm_snapshot_start_time"])
+    ).to_numpy(dtype=float)
+    bm_at_snapshot = bm_asof[f"bm_price_lag_{bm_snapshot_lag}"].to_numpy(dtype=float)
+    market_df[f"spread_lag_{bm_snapshot_lag}"] = bm_at_snapshot - da_at_snapshot
     return market_df

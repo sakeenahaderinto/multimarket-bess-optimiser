@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import pandas as pd
 
-from market_calendar import last_complete_half_hour_start_times
-
 SAFE_LONG_LAGS = (96, 144, 336)
 
 
@@ -28,12 +26,15 @@ def _check_frequency(index: pd.DatetimeIndex) -> None:
 
 
 def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Add lags while respecting the 09:00 UTC D-1 information cutoff."""
+    """Add published-ahead market lags.
+
+    BM-derived lags are deliberately built in ``features.point_in_time`` because
+    their availability depends on ``createdDateTime``, not only ``startTime``.
+    """
     if not isinstance(df.index, pd.DatetimeIndex):
         raise ValueError("The DataFrame index must be a DatetimeIndex.")
     _check_frequency(df.index)
-    _check_required_columns(df, ["accepted_offer_volume", "price"], "add_lag_features")
-    snapshot_times = last_complete_half_hour_start_times(df.index)
+    _check_required_columns(df, ["price"], "add_lag_features")
 
     published_ahead = ["price"]
     for column in ("dc_low_price", "dc_high_price"):
@@ -44,11 +45,4 @@ def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
         for lag in SAFE_LONG_LAGS:
             df[f"{column}_lag_{lag}"] = df[column].shift(lag)
 
-    observed = ["accepted_offer_volume"]
-    if "bm_price" in df.columns:
-        observed.append("bm_price")
-    for column in observed:
-        df[f"{column}_lag_48"] = df[column].reindex(snapshot_times).to_numpy(dtype=float)
-        for lag in SAFE_LONG_LAGS:
-            df[f"{column}_lag_{lag}"] = df[column].shift(lag)
     return df

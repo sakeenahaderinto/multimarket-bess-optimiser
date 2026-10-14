@@ -7,6 +7,7 @@ import logging
 import numpy as np
 import pandas as pd
 
+from features.point_in_time import build_bm_asof_features
 from market_calendar import last_complete_hour_start_times
 
 logger = logging.getLogger(__name__)
@@ -54,31 +55,25 @@ def add_cyclical_time_hourly(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_lag_features_hourly(df: pd.DataFrame) -> pd.DataFrame:
-    """Add leakage-safe hourly lags for DA price and accepted BM volume."""
+    """Add hourly DA-price lags, which are published before delivery.
+
+    BM-derived lags are added separately from publication-vintage-aware data.
+    """
     _check_hourly_index(df.index)
-    required = ("accepted_offer_volume", "price")
+    required = ("price",)
     missing = [column for column in required if column not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
-    snapshot_times = last_complete_hour_start_times(df.index)
     for lag in (24, 48, 72, 168):
         df[f"price_lag_{lag}"] = df["price"].shift(lag)
-    df["accepted_offer_volume_lag_24"] = (
-        df["accepted_offer_volume"]
-        .reindex(snapshot_times)
-        .to_numpy(dtype=float)
-    )
-    for lag in (48, 72, 168):
-        df[f"accepted_offer_volume_lag_{lag}"] = df["accepted_offer_volume"].shift(lag)
     return df
 
 
 def add_rolling_features_hourly(df: pd.DataFrame) -> pd.DataFrame:
-    required = ("accepted_offer_volume", "price")
+    required = ("price",)
     missing = [column for column in required if column not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
-    snapshot_times = last_complete_hour_start_times(df.index)
     for window in (4, 24, 168):
         price_history = df["price"].shift(24)
         df[f"price_roll_mean_{window}"] = price_history.rolling(
@@ -89,20 +84,6 @@ def add_rolling_features_hourly(df: pd.DataFrame) -> pd.DataFrame:
             window=window,
             min_periods=max(2, window // 2),
         ).std()
-        volume_mean = df["accepted_offer_volume"].rolling(
-            window=window,
-            min_periods=max(1, window // 2),
-        ).mean()
-        volume_std = df["accepted_offer_volume"].rolling(
-            window=window,
-            min_periods=max(2, window // 2),
-        ).std()
-        df[f"accepted_offer_volume_roll_mean_{window}"] = (
-            volume_mean.reindex(snapshot_times).to_numpy(dtype=float)
-        )
-        df[f"accepted_offer_volume_roll_std_{window}"] = (
-            volume_std.reindex(snapshot_times).to_numpy(dtype=float)
-        )
     return df
 
 
@@ -127,22 +108,10 @@ def add_weather_features_hourly(df: pd.DataFrame, weather_df: pd.DataFrame) -> p
     return df
 
 
-def add_bm_imbalance_hourly(
-    df: pd.DataFrame,
-    bm_imbalance_30min: pd.Series,
-) -> pd.DataFrame:
-    snapshot_times = last_complete_hour_start_times(df.index)
-    hourly_sum = _complete_hour_sum(bm_imbalance_30min)
-    df["bm_imbalance_volume_lag_24"] = (
-        hourly_sum.reindex(snapshot_times).to_numpy(dtype=float)
-    )
-    return df
-
-
 def add_market_features_hourly(
     df: pd.DataFrame,
     weather_df: pd.DataFrame,
-    bm_sell_price_30min: pd.Series,
+    bm_asof: pd.DataFrame,
 ) -> pd.DataFrame:
     if "price" not in df.columns:
         raise ValueError("The hourly DA price column is missing")
@@ -156,18 +125,16 @@ def add_market_features_hourly(
         method="ffill",
     ).to_numpy(dtype=float)
     df["wind_change_lag_24"] = wind_now - wind_previous
-    bm_sell_hourly = _complete_hour_mean(bm_sell_price_30min)
-    da_at_snapshot = df["price"].reindex(snapshot_times).to_numpy(dtype=float)
-    bm_at_snapshot = bm_sell_hourly.reindex(snapshot_times).to_numpy(dtype=float)
+    snapshot_starts = pd.DatetimeIndex(bm_asof["bm_snapshot_start_time"])
+    da_at_snapshot = df["price"].reindex(snapshot_starts).to_numpy(dtype=float)
+    bm_at_snapshot = bm_asof["bm_price_lag_24"].to_numpy(dtype=float)
     df["spread_lag_24"] = bm_at_snapshot - da_at_snapshot
     return df
 
 
 def build_da_hourly_features(
     da_df_hourly: pd.DataFrame,
-    accepted_offer_volume_30min: pd.Series,
-    bm_imbalance_30min: pd.Series,
-    bm_sell_price_30min: pd.Series,
+    bm_df: pd.DataFrame,
     weather_df: pd.DataFrame,
 ) -> pd.DataFrame:
     canonical_index = pd.date_range(
@@ -179,8 +146,17 @@ def build_da_hourly_features(
     if da_source.index.has_duplicates:
         da_source = da_source.groupby(level=0).last()
     da_aligned = da_source.reindex(canonical_index)
+    bm_records = bm_df.copy()
+    if "startTime" not in bm_records.columns:
+        if not isinstance(bm_records.index, pd.DatetimeIndex):
+            raise ValueError("BM data requires a startTime column or DatetimeIndex")
+        bm_records = bm_records.reset_index().rename(
+            columns={bm_records.index.name or "index": "startTime"}
+        )
+    bm_records["startTime"] = pd.to_datetime(bm_records["startTime"], utc=True)
+    bm_indexed = bm_records.set_index("startTime").sort_index()
     accepted_offer_volume = _complete_hour_sum(
-        accepted_offer_volume_30min
+        bm_indexed["totalAcceptedOfferVolume"]
     ).reindex(canonical_index)
     missing_rate = float(da_aligned.isna().mean())
     if missing_rate > 0.05:
@@ -188,12 +164,20 @@ def build_da_hourly_features(
     df = pd.DataFrame(index=canonical_index)
     df["price"] = da_aligned
     df["accepted_offer_volume"] = accepted_offer_volume
+    bm_asof = build_bm_asof_features(
+        bm_records,
+        canonical_index,
+        resolution="1h",
+        snapshot_lag=24,
+        long_lags=(48, 72, 168),
+        rolling_windows=(4, 24, 168),
+    )
     df = add_cyclical_time_hourly(df)
     df = add_lag_features_hourly(df)
     df = add_rolling_features_hourly(df)
     df = add_weather_features_hourly(df, weather_df)
-    df = add_bm_imbalance_hourly(df, bm_imbalance_30min)
-    df = add_market_features_hourly(df, weather_df, bm_sell_price_30min)
+    df = pd.concat([df, bm_asof], axis=1)
+    df = add_market_features_hourly(df, weather_df, bm_asof)
     return df
 
 

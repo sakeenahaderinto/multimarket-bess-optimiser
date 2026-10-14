@@ -10,6 +10,7 @@ from config import settings
 from features.cyclical_time import add_cyclical_time
 from features.lag_features import add_lag_features
 from features.market_features import create_market_features
+from features.point_in_time import build_bm_asof_features
 from features.rolling_stats import add_rolling_features
 from features.weather_features import add_weather_features
 
@@ -70,6 +71,14 @@ def build_features() -> pd.DataFrame:
     da_df["datetime"] = pd.to_datetime(da_df["datetime"], utc=True)
     da_df = _deduplicate_index(da_df.set_index("datetime"), "DA")
     bm_df["startTime"] = pd.to_datetime(bm_df["startTime"], utc=True)
+    bm_df["createdDateTime"] = pd.to_datetime(
+        bm_df["createdDateTime"],
+        utc=True,
+        errors="coerce",
+    )
+    if bm_df["createdDateTime"].isna().any():
+        raise ValueError("BMRS data contains invalid createdDateTime values")
+    bm_records = bm_df.copy()
     bm_df = _deduplicate_index(bm_df.set_index("startTime"), "BMRS")
     weather_df["date"] = pd.to_datetime(weather_df["date"], utc=True)
     weather_df = _deduplicate_index(weather_df.set_index("date"), "weather")
@@ -116,12 +125,30 @@ def build_features() -> pd.DataFrame:
     df["bm_price"] = bm_price_aligned
     df["dc_low_price"] = dcl_aligned
     df["dc_high_price"] = dch_aligned
+    bm_asof = build_bm_asof_features(
+        bm_records,
+        canonical_index,
+        resolution="30min",
+        snapshot_lag=48,
+        long_lags=(96, 144, 336),
+        rolling_windows=(8, 48, 336),
+    )
     df = add_cyclical_time(df)
     df = add_lag_features(df)
     df = add_rolling_features(df)
     df = add_weather_features(df, weather_df)
     df = pd.concat(
-        [df, create_market_features(bm_df, da_df, weather_df, canonical_index)],
+        [
+            df,
+            bm_asof,
+            create_market_features(
+                da_df,
+                weather_df,
+                canonical_index,
+                bm_asof,
+                bm_snapshot_lag=48,
+            ),
+        ],
         axis=1,
     )
 

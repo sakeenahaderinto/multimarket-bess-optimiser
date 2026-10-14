@@ -2,9 +2,9 @@ import numpy as np
 import pandas as pd
 
 from features.pipeline_da_hourly import (
+    _complete_hour_mean,
+    _complete_hour_sum,
     add_lag_features_hourly,
-    complete_hour_mean,
-    complete_hour_sum,
     upsample_da_forecast,
 )
 
@@ -13,8 +13,8 @@ def test_complete_hour_aggregations_require_two_half_hours():
     index = pd.date_range("2025-01-01", periods=6, freq="30min", tz="UTC")
     values = pd.Series([1.0, 2.0, 3.0, np.nan, 5.0, 7.0], index=index)
 
-    summed = complete_hour_sum(values)
-    averaged = complete_hour_mean(values)
+    summed = _complete_hour_sum(values)
+    averaged = _complete_hour_mean(values)
 
     assert summed.iloc[0] == 3.0
     assert np.isnan(summed.iloc[1])
@@ -24,7 +24,7 @@ def test_complete_hour_aggregations_require_two_half_hours():
     assert averaged.iloc[2] == 6.0
 
 
-def test_restricted_hourly_feature_is_constant_within_delivery_day():
+def test_hourly_da_price_lag_retains_target_hour_shape():
     index = pd.date_range("2025-01-01", periods=24 * 5, freq="h", tz="UTC")
     frame = pd.DataFrame(
         {
@@ -34,11 +34,6 @@ def test_restricted_hourly_feature_is_constant_within_delivery_day():
         index=index,
     )
     output = add_lag_features_hourly(frame.copy())
-
-    for day in sorted(set(output.index.date))[2:]:
-        values = output.loc[str(day), "accepted_offer_volume_lag_24"].dropna()
-        if len(values):
-            assert values.nunique() == 1
 
     # DA price lag retains target-hour shape because the whole previous-day DA
     # auction curve is known before the current delivery-day gate.
