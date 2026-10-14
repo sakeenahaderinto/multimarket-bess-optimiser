@@ -4,6 +4,8 @@ import pytest
 
 from forecasting import base
 from forecasting.base import BaseForecaster
+from forecasting.bm_da_spread import BMDASpreadForecaster
+from forecasting.bm_price import BMPriceForecaster
 
 
 class SmallForecaster(BaseForecaster):
@@ -13,6 +15,10 @@ class SmallForecaster(BaseForecaster):
 
     VAL_WINDOW = 2
     MIN_FOLD_ROWS = 3
+
+
+class PublishedTargetForecaster(SmallForecaster):
+    TARGET_AVAILABILITY_COL = "target_created_time"
 
 
 def frame(index: pd.DatetimeIndex) -> pd.DataFrame:
@@ -70,6 +76,126 @@ def test_inner_validation_rejects_non_positive_window(attribute: str, value: int
 
     with pytest.raises(ValueError, match="must be positive"):
         forecaster._split_inner_validation(history)
+
+
+def test_training_rows_require_target_publication_by_cutoff() -> None:
+    forecaster = PublishedTargetForecaster()
+    history = frame(pd.date_range("2024-01-01", periods=4, freq="30min", tz="UTC"))
+    history["target_created_time"] = pd.to_datetime(
+        [
+            "2024-01-01 00:20Z",
+            "2024-01-01 00:50Z",
+            "2024-01-01 02:01Z",
+            "2024-01-01 02:30Z",
+        ]
+    )
+
+    available = forecaster._training_rows_available_by(history, "2024-01-01 02:00Z")
+
+    assert available.index.equals(history.index[:2])
+    assert (available["target_created_time"] <= pd.Timestamp("2024-01-01 02:00Z")).all()
+
+
+def test_training_rows_require_target_availability_metadata() -> None:
+    forecaster = PublishedTargetForecaster()
+    history = frame(pd.date_range("2024-01-01", periods=2, freq="30min", tz="UTC"))
+
+    with pytest.raises(ValueError, match="availability column"):
+        forecaster._training_rows_available_by(history, "2024-01-02")
+
+
+def test_training_rows_reject_missing_publication_for_present_target() -> None:
+    forecaster = PublishedTargetForecaster()
+    history = frame(pd.date_range("2024-01-01", periods=2, freq="30min", tz="UTC"))
+    history["target_created_time"] = [pd.NaT, pd.Timestamp("2024-01-01 01:00Z")]
+
+    with pytest.raises(ValueError, match="no valid publication time"):
+        forecaster._training_rows_available_by(history, "2024-01-02")
+
+
+def test_training_rows_reject_publication_before_settlement() -> None:
+    forecaster = PublishedTargetForecaster()
+    history = frame(pd.date_range("2024-01-01", periods=2, freq="30min", tz="UTC"))
+    history["target_created_time"] = pd.to_datetime(
+        ["2023-12-31 23:59Z", "2024-01-01 01:00Z"]
+    )
+
+    with pytest.raises(ValueError, match="precedes settlement start"):
+        forecaster._training_rows_available_by(history, "2024-01-02")
+
+
+def test_published_targets_require_final_training_cutoff() -> None:
+    forecaster = PublishedTargetForecaster()
+    history = frame(pd.date_range("2024-01-01", periods=7, freq="30min", tz="UTC"))
+
+    with pytest.raises(ValueError, match="final_information_cutoff is required"):
+        forecaster.train(history)
+
+
+def test_bm_and_spread_models_use_bm_target_publication_time() -> None:
+    assert BMPriceForecaster.TARGET_AVAILABILITY_COL == "bm_target_created_time"
+    assert BMDASpreadForecaster.TARGET_AVAILABILITY_COL == "bm_target_created_time"
+
+
+def test_walk_forward_training_filters_targets_at_each_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RecordingForecaster(PublishedTargetForecaster):
+        MIN_TRAIN = 6
+        FOLD_STEP = 2
+        VAL_WINDOW = 2
+        MIN_FOLD_ROWS = 2
+        refit_indexes: list[pd.DatetimeIndex] = []
+
+        def _fit_quantile(
+            self,
+            q: float,
+            x_inner_train: pd.DataFrame,
+            y_inner_train: pd.Series,
+            x_inner_validation: pd.DataFrame,
+            y_inner_validation: pd.Series,
+            x_refit: pd.DataFrame,
+            y_refit: pd.Series,
+            x_outer_validation: pd.DataFrame,
+        ) -> tuple[object, np.ndarray, int]:
+            del (
+                x_inner_train,
+                y_inner_train,
+                x_inner_validation,
+                y_inner_validation,
+                y_refit,
+            )
+            self.refit_indexes.append(x_refit.index)
+            return object(), np.full(len(x_outer_validation), q), 10
+
+    class FakeFinalModel:
+        def __init__(self, **_params: object) -> None:
+            pass
+
+        def fit(self, _x: pd.DataFrame, _y: pd.Series) -> "FakeFinalModel":
+            return self
+
+    monkeypatch.setattr(
+        base,
+        "realised_data_cutoff_time",
+        lambda timestamp: pd.Timestamp(timestamp) - pd.Timedelta(minutes=1),
+    )
+    monkeypatch.setattr(base.lgb, "LGBMRegressor", FakeFinalModel)
+
+    history = frame(pd.date_range("2024-01-01", periods=12, freq="30min", tz="UTC"))
+    history["target_created_time"] = history.index + pd.Timedelta(minutes=5)
+    delayed_timestamp = history.index[4]
+    history.loc[delayed_timestamp, "target_created_time"] = history.index[7]
+
+    RecordingForecaster().train(
+        history,
+        final_information_cutoff=history.index[-1] + pd.Timedelta(hours=1),
+    )
+
+    first_fold_refits = RecordingForecaster.refit_indexes[:3]
+    second_fold_refits = RecordingForecaster.refit_indexes[3:6]
+    assert all(delayed_timestamp not in index for index in first_fold_refits)
+    assert all(delayed_timestamp in index for index in second_fold_refits)
 
 
 def test_early_stopping_never_sees_outer_validation(monkeypatch: pytest.MonkeyPatch) -> None:

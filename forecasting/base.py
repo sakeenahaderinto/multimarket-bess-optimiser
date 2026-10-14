@@ -12,7 +12,11 @@ import numpy as np
 import pandas as pd
 
 from config import settings
-from market_calendar import aggregate_to_efa_blocks, realised_data_cutoff_time
+from market_calendar import (
+    aggregate_to_efa_blocks,
+    ensure_utc_timestamp,
+    realised_data_cutoff_time,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +72,7 @@ class BaseForecaster:
     model_id: str
     target_col: str
     feature_cols: list[str]
+    TARGET_AVAILABILITY_COL: str | None = None
 
     MIN_TRAIN = 48 * 28
     FOLD_STEP = 48 * 7
@@ -210,6 +215,45 @@ class BaseForecaster:
             raise ValueError("Inner training and validation timestamps must be disjoint")
         return inner_train, inner_validation
 
+    def _training_rows_available_by(
+        self,
+        df: pd.DataFrame,
+        information_cutoff: object,
+    ) -> pd.DataFrame:
+        """Return target rows whose outcomes were published by ``information_cutoff``."""
+        cutoff = ensure_utc_timestamp(information_cutoff, "information_cutoff")
+        historical = df.loc[df.index < cutoff]
+        availability_col = self.TARGET_AVAILABILITY_COL
+        if availability_col is None:
+            return historical
+        if availability_col not in df.columns:
+            raise ValueError(
+                f"Target availability column {availability_col!r} is missing for "
+                f"{self.model_id}"
+            )
+
+        availability = pd.to_datetime(
+            historical[availability_col],
+            utc=True,
+            errors="coerce",
+        )
+        target_present = historical[self.target_col].notna()
+        missing_availability = target_present & availability.isna()
+        if missing_availability.any():
+            first = missing_availability[missing_availability].index[0]
+            raise ValueError(
+                f"Target {self.target_col!r} at {first} has no valid publication time"
+            )
+
+        published_before_delivery = target_present & (availability < historical.index)
+        if published_before_delivery.any():
+            first = published_before_delivery[published_before_delivery].index[0]
+            raise ValueError(
+                f"Target publication time precedes settlement start at {first}"
+            )
+
+        return historical.loc[availability.le(cutoff)]
+
     def _fit_quantile(
         self,
         q: float,
@@ -244,7 +288,11 @@ class BaseForecaster:
         predictions = refit_model.predict(x_outer_validation)
         return refit_model, predictions, best_iteration
 
-    def train(self, df: pd.DataFrame) -> tuple[dict[float, lgb.LGBMRegressor], pd.DataFrame]:
+    def train(
+        self,
+        df: pd.DataFrame,
+        final_information_cutoff: object | None = None,
+    ) -> tuple[dict[float, lgb.LGBMRegressor], pd.DataFrame]:
         """Run nested expanding-window CV and train final quantile models.
 
         Each outer validation window remains untouched until scoring. Boosting
@@ -253,6 +301,11 @@ class BaseForecaster:
         available before the outer forecast origin.
         """
         logger.info("Starting walk-forward CV for %s", self.model_id)
+        if self.TARGET_AVAILABILITY_COL is not None and final_information_cutoff is None:
+            raise ValueError(
+                "final_information_cutoff is required when target publication "
+                "availability is configured"
+            )
         columns_needed = self.feature_cols + [self.target_col]
 
         fold_predictions: dict[float, list[float]] = {q: [] for q in QUANTILES}
@@ -275,9 +328,10 @@ class BaseForecaster:
             first_validation_timestamp = df.index[fold_end]
             information_cutoff = realised_data_cutoff_time(first_validation_timestamp)
 
-            train_slice = df[df.index < information_cutoff].dropna(
-                subset=columns_needed
-            )
+            train_slice = self._training_rows_available_by(
+                df,
+                information_cutoff,
+            ).dropna(subset=columns_needed)
             validation_slice = df.iloc[
                 fold_end : fold_end + self.VAL_WINDOW
             ].dropna(subset=columns_needed)
@@ -374,7 +428,12 @@ class BaseForecaster:
                 best_n_estimators[q],
             )
 
-        clean = df.dropna(subset=columns_needed)
+        final_training_rows = (
+            self._training_rows_available_by(df, final_information_cutoff)
+            if final_information_cutoff is not None
+            else df
+        )
+        clean = final_training_rows.dropna(subset=columns_needed)
         x_full = clean[self.feature_cols]
         y_full = clean[self.target_col]
         if x_full.empty:
@@ -460,6 +519,8 @@ class BaseForecaster:
             raise ValueError("Feature table must use a timezone-aware DatetimeIndex")
 
         columns_needed = self.feature_cols + [self.target_col]
+        if self.TARGET_AVAILABILITY_COL is not None:
+            columns_needed.append(self.TARGET_AVAILABILITY_COL)
         missing = [column for column in columns_needed if column not in df.columns]
         if missing:
             raise ValueError(f"Feature table is missing columns: {missing}")
@@ -493,7 +554,10 @@ class BaseForecaster:
             len(test),
         )
 
-        models, oof = self.train(train_validation)
+        models, oof = self.train(
+            train_validation,
+            final_information_cutoff=training_cutoff,
+        )
         self.save_models(models)
         self.save_oof_forecasts(oof)
 

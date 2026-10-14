@@ -55,6 +55,20 @@ def _dc_service_series(dc_df: pd.DataFrame, service: str) -> pd.Series:
     return series.sort_index()
 
 
+def _latest_bm_targets(bm_records: pd.DataFrame) -> pd.DataFrame:
+    """Return the latest published BM target vintage for each settlement period."""
+    required = {"startTime", "createdDateTime", "systemSellPrice"}
+    missing = required - set(bm_records.columns)
+    if missing:
+        raise ValueError(f"BMRS target data is missing columns: {sorted(missing)}")
+
+    targets = bm_records.sort_values(["startTime", "createdDateTime"]).drop_duplicates(
+        subset="startTime",
+        keep="last",
+    )
+    return targets.set_index("startTime").sort_index()
+
+
 def build_features() -> pd.DataFrame:
     """Build and save the main 30-minute target and feature table."""
     bm_df = pd.read_parquet(settings.data_dir / "processed" / "bmrs_processed.parquet")
@@ -79,7 +93,7 @@ def build_features() -> pd.DataFrame:
     if bm_df["createdDateTime"].isna().any():
         raise ValueError("BMRS data contains invalid createdDateTime values")
     bm_records = bm_df.copy()
-    bm_df = _deduplicate_index(bm_df.set_index("startTime"), "BMRS")
+    bm_df = _latest_bm_targets(bm_records)
     weather_df["date"] = pd.to_datetime(weather_df["date"], utc=True)
     weather_df = _deduplicate_index(weather_df.set_index("date"), "weather")
     dc_df["delivery_start"] = pd.to_datetime(dc_df["delivery_start"], utc=True)
@@ -97,6 +111,7 @@ def build_features() -> pd.DataFrame:
         .reindex(canonical_index)
     )
     bm_price_aligned = bm_df["systemSellPrice"].reindex(canonical_index)
+    bm_target_created_time_aligned = bm_df["createdDateTime"].reindex(canonical_index)
     accepted_offer_volume_aligned = bm_df["totalAcceptedOfferVolume"].reindex(
         canonical_index
     )
@@ -123,6 +138,7 @@ def build_features() -> pd.DataFrame:
     df["price"] = da_aligned
     df["accepted_offer_volume"] = accepted_offer_volume_aligned
     df["bm_price"] = bm_price_aligned
+    df["bm_target_created_time"] = bm_target_created_time_aligned
     df["dc_low_price"] = dcl_aligned
     df["dc_high_price"] = dch_aligned
     bm_asof = build_bm_asof_features(

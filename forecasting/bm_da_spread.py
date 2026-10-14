@@ -6,6 +6,7 @@ from forecasting.base import BASE_FEATURES, BaseForecaster
 class BMDASpreadForecaster(BaseForecaster):
     model_id = "spread"
     target_col = "spread"
+    TARGET_AVAILABILITY_COL = "bm_target_created_time"
     feature_cols = BASE_FEATURES + [
         "wind_change_lag_48",
         "bm_price_lag_48",
