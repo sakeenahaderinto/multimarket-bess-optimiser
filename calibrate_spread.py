@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 
 from backtest.engine import _normalise_to_30min
-from run_backtest import _load_actual, _load_forecast
+from market_calendar import ensure_utc_timestamp, realised_data_cutoff_time
+from run_backtest import _load_actual, _load_bm_actual, _load_forecast
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -86,29 +87,83 @@ def apply_scales(frame: pd.DataFrame, lower_scale: float, upper_scale: float) ->
     return calibrated
 
 
+def _aligned_calibration_history(
+    forecasts: pd.DataFrame,
+    actual: pd.Series,
+    actual_available_time: pd.Series,
+) -> pd.DataFrame:
+    """Align spread outcomes, forecasts, and their BM publication timestamps."""
+    if not isinstance(forecasts.index, pd.DatetimeIndex) or forecasts.index.tz is None:
+        raise ValueError("Calibration forecasts must use a timezone-aware DatetimeIndex")
+    if forecasts.index.has_duplicates:
+        raise ValueError("Calibration forecasts contain duplicate timestamps")
+
+    frame = pd.concat(
+        [
+            actual.rename("actual"),
+            forecasts[["q10", "q50", "q90"]],
+            actual_available_time.rename("actual_available_time"),
+        ],
+        axis=1,
+        join="inner",
+    ).dropna()
+    if frame.empty:
+        raise ValueError("No complete observations are available for calibration")
+    frame = frame.sort_index()
+    availability = pd.to_datetime(
+        frame["actual_available_time"],
+        utc=True,
+        errors="coerce",
+    )
+    if availability.isna().any():
+        first = availability[availability.isna()].index[0]
+        raise ValueError(f"Calibration outcome at {first} has no valid publication time")
+    published_before_settlement = availability < frame.index
+    if published_before_settlement.any():
+        first = published_before_settlement[published_before_settlement].index[0]
+        raise ValueError(f"Calibration publication precedes settlement start at {first}")
+    frame["actual_available_time"] = availability
+    return frame
+
+
+def calibration_history_available_by(
+    forecasts: pd.DataFrame,
+    actual: pd.Series,
+    actual_available_time: pd.Series,
+    information_cutoff: object,
+) -> pd.DataFrame:
+    """Return aligned calibration observations known by an information cutoff."""
+    cutoff = ensure_utc_timestamp(information_cutoff, "information_cutoff")
+    frame = _aligned_calibration_history(forecasts, actual, actual_available_time)
+    eligible = (frame.index < cutoff) & frame["actual_available_time"].le(cutoff)
+    return frame.loc[eligible]
+
+
 def rolling_calibrate(
     forecasts: pd.DataFrame,
     actual: pd.Series,
+    actual_available_time: pd.Series,
     min_history_days: int = MIN_HISTORY_DAYS,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Calibrate each UTC date using only earlier OOF observations."""
-    common = forecasts.index.intersection(actual.index)
-    forecast = forecasts.reindex(common)[["q10", "q50", "q90"]].dropna()
-    aligned_actual = actual.reindex(forecast.index).dropna()
-    forecast = forecast.reindex(aligned_actual.index)
-
+    """Calibrate each UTC date using only outcomes published by its origin."""
+    frame = _aligned_calibration_history(forecasts, actual, actual_available_time)
+    forecast = frame[["q10", "q50", "q90"]]
     result = forecast.copy()
     date_values = np.asarray(result.index.date, dtype=object)
     scale_rows = []
 
     for current_date in sorted(set(date_values)):
-        past = date_values < current_date
+        current_midnight = pd.Timestamp(current_date, tz="UTC")
+        information_cutoff = realised_data_cutoff_time(current_midnight)
+        past = (result.index < current_midnight) & frame["actual_available_time"].le(
+            information_cutoff
+        )
         past_dates = len(set(date_values[past]))
         if past_dates < min_history_days:
             lower_scale = upper_scale = 1.0
         else:
             lower_scale, upper_scale = find_tail_scales(
-                aligned_actual.to_numpy(dtype=float)[past],
+                frame["actual"].to_numpy(dtype=float)[past],
                 forecast["q10"].to_numpy(dtype=float)[past],
                 forecast["q50"].to_numpy(dtype=float)[past],
                 forecast["q90"].to_numpy(dtype=float)[past],
@@ -135,6 +190,8 @@ def rolling_calibrate(
                 "lower_scale": lower_scale,
                 "upper_scale": upper_scale,
                 "history_days": past_dates,
+                "history_observations": int(past.sum()),
+                "information_cutoff": information_cutoff,
             }
         )
 
@@ -145,7 +202,6 @@ def _report(label: str, actual: pd.Series, forecast: pd.DataFrame) -> None:
     aligned = pd.concat([actual.rename("actual"), forecast], axis=1).dropna()
     a = aligned["actual"].to_numpy(float)
     q10 = aligned["q10"].to_numpy(float)
-    q50 = aligned["q50"].to_numpy(float)
     q90 = aligned["q90"].to_numpy(float)
     logger.info("%s lower miss: %.2f%%", label, 100 * np.mean(a < q10))
     logger.info("%s upper miss: %.2f%%", label, 100 * np.mean(a > q90))
@@ -156,7 +212,9 @@ def _report(label: str, actual: pd.Series, forecast: pd.DataFrame) -> None:
 
 def main() -> None:
     da = _load_actual("processed/day_ahead_processed.parquet", "value").to_frame("value")
-    bm = _load_actual("processed/bmrs_processed.parquet", "systemSellPrice")
+    bm_frame = _load_bm_actual()
+    bm = bm_frame["value"]
+    bm_available_time = bm_frame["bm_target_created_time"]
     da_30 = _normalise_to_30min(da, "da_actual", fill_limit=1)["value"]
     spread_actual = (bm - da_30).dropna()
 
@@ -166,22 +224,41 @@ def main() -> None:
     actual_oof = spread_actual.reindex(common)
     _report("OOF before", actual_oof, oof)
 
-    calibrated_oof, scales = rolling_calibrate(oof, actual_oof)
+    calibrated_oof, scales = rolling_calibrate(
+        oof,
+        actual_oof,
+        bm_available_time,
+    )
     _report("OOF rolling calibrated", actual_oof, calibrated_oof)
 
     output_directory = DATA_DIR / "forecasts"
     calibrated_oof.to_parquet(output_directory / "spread_calibrated_oof_2022_2024.parquet")
     scales.to_csv(output_directory / "spread_calibration_scales_by_date.csv")
 
-    lower_scale, upper_scale = find_tail_scales(
-        actual_oof.to_numpy(float),
-        oof["q10"].to_numpy(float),
-        oof["q50"].to_numpy(float),
-        oof["q90"].to_numpy(float),
-    )
-    logger.info("Final OOF lower scale %.5f, upper scale %.5f", lower_scale, upper_scale)
-
     oos = _load_forecast("spread", "oos")
+    if oos.empty:
+        raise ValueError("OOS spread forecast is empty")
+    oos_information_cutoff = realised_data_cutoff_time(oos.index.min())
+    final_history = calibration_history_available_by(
+        oof,
+        actual_oof,
+        bm_available_time,
+        oos_information_cutoff,
+    )
+    lower_scale, upper_scale = find_tail_scales(
+        final_history["actual"].to_numpy(float),
+        final_history["q10"].to_numpy(float),
+        final_history["q50"].to_numpy(float),
+        final_history["q90"].to_numpy(float),
+    )
+    logger.info(
+        "Final OOF scales at %s from %d published observations: lower %.5f, upper %.5f",
+        oos_information_cutoff,
+        len(final_history),
+        lower_scale,
+        upper_scale,
+    )
+
     calibrated_oos = apply_scales(oos, lower_scale, upper_scale)
     calibrated_oos.to_parquet(output_directory / "spread_calibrated_oos_2025.parquet")
 
