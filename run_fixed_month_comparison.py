@@ -16,7 +16,7 @@ from historical_error_scenarios import (
     build_error_path_pool,
     make_historical_error_scenario_builder,
 )
-from run_backtest import _load_actual, _load_dc_actual, _load_forecast
+from run_backtest import _load_actual, _load_bm_actual, _load_dc_actual, _load_forecast
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -177,7 +177,7 @@ def main() -> None:
     args = parser.parse_args()
 
     da_actual = _load_actual("processed/day_ahead_processed.parquet", "value").to_frame("value")
-    bm_actual = _load_actual("processed/bmrs_processed.parquet", "systemSellPrice").to_frame("value")
+    bm_actual = _load_bm_actual()
     dc_low = _load_dc_actual("DCL").to_frame("value")
     dc_high = _load_dc_actual("DCH").to_frame("value")
     da_actual_30 = _normalise_to_30min(da_actual, "da_actual", fill_limit=1)

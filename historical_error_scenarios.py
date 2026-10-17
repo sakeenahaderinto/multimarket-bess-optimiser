@@ -9,7 +9,10 @@ import pandas as pd
 
 from baselines.scenarios import _block_avg_1d, _col
 from excluded_dates import is_excluded
-from market_calendar import last_complete_half_hour_start_times
+from market_calendar import (
+    last_complete_half_hour_start_times,
+    realised_data_cutoff_time,
+)
 
 logger = logging.getLogger(__name__)
 MIN_POOL_SIZE = 30
@@ -45,12 +48,30 @@ def build_error_path_pool(
     dc_high_oof: pd.DataFrame,
 ) -> dict:
     """Build complete 48-period joint OOF residual paths."""
+    publication_column = "bm_target_created_time"
+    if publication_column not in bm_actual.columns:
+        raise ValueError(
+            f"BM actuals must include publication metadata in {publication_column!r}"
+        )
     errors = {
         "da": (_col(da_actual) - da_oof["q50"]).dropna(),
         "bm": (_col(bm_actual) - bm_oof["q50"]).dropna(),
         "dc_low": (_col(dc_low_actual_30) - dc_low_oof["q50"]).dropna(),
         "dc_high": (_col(dc_high_actual_30) - dc_high_oof["q50"]).dropna(),
     }
+
+    bm_publication = pd.to_datetime(
+        bm_actual[publication_column],
+        utc=True,
+        errors="coerce",
+    ).reindex(errors["bm"].index)
+    if bm_publication.isna().any():
+        first = bm_publication[bm_publication.isna()].index[0]
+        raise ValueError(f"BM residual at {first} has no valid publication time")
+    published_before_settlement = bm_publication < bm_publication.index
+    if published_before_settlement.any():
+        first = published_before_settlement[published_before_settlement].index[0]
+        raise ValueError(f"BM publication time precedes settlement start at {first}")
 
     def complete_dates(series: pd.Series) -> set:
         counts = series.groupby(series.index.date).size()
@@ -80,13 +101,19 @@ def build_error_path_pool(
     dcl_paths = np.stack(
         [
             _block_avg_1d(row, 48, pd.Timestamp(value, tz="UTC"))
-            for row, value in zip(raw_dcl, valid_dates)
+            for row, value in zip(raw_dcl, valid_dates, strict=True)
         ]
     )
     dch_paths = np.stack(
         [
             _block_avg_1d(row, 48, pd.Timestamp(value, tz="UTC"))
-            for row, value in zip(raw_dch, valid_dates)
+            for row, value in zip(raw_dch, valid_dates, strict=True)
+        ]
+    )
+    bm_available_time = pd.DatetimeIndex(
+        [
+            bm_publication[bm_publication.index.date == value].max()
+            for value in valid_dates
         ]
     )
 
@@ -96,6 +123,7 @@ def build_error_path_pool(
         "bm": bm_paths,
         "dc_low": dcl_paths,
         "dc_high": dch_paths,
+        "bm_available_time": bm_available_time,
         "da_vol_7d": _compute_da_vol_7d(da_actual, valid_dates),
         "utc_offset_minutes": np.asarray(
             [_date_offset_minutes(value) for value in valid_dates],
@@ -127,6 +155,18 @@ def make_historical_error_scenario_builder(
         ),
         dtype=int,
     )
+    if "bm_available_time" not in error_pool:
+        raise ValueError("Historical error pool is missing 'bm_available_time'")
+    pool_availability = pd.to_datetime(
+        error_pool["bm_available_time"],
+        utc=True,
+        errors="coerce",
+    )
+    if len(pool_availability) != len(pool_dates) or pool_availability.isna().any():
+        raise ValueError("Historical error pool has invalid BM availability metadata")
+    path_end_times = pd.to_datetime(pool_dates, utc=True) + pd.Timedelta(hours=23, minutes=30)
+    if (pool_availability < path_end_times).any():
+        raise ValueError("Historical error pool marks a BM path available before it settled")
     use_regime_weights = da_actual is not None and pool_volumes.size == len(pool_dates)
 
     def builder(
@@ -141,10 +181,10 @@ def make_historical_error_scenario_builder(
         if horizon % 48 != 0:
             raise ValueError("Historical error scenarios require a multiple of 48 periods")
 
-        target_date = pd.Timestamp(window_start).date()
-        available = np.where(
-            np.asarray([(target_date - value).days >= 2 for value in pool_dates])
-        )[0]
+        target_timestamp = pd.Timestamp(window_start)
+        target_date = target_timestamp.date()
+        information_cutoff = realised_data_cutoff_time(target_timestamp)
+        available = np.where(pool_availability <= information_cutoff)[0]
 
         if match_dst_regime:
             target_offset = _date_offset_minutes(target_date)

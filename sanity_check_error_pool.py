@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 
 import numpy as np
+import pandas as pd
 
 from backtest.engine import _normalise_to_30min
 from features.pipeline_da_hourly import upsample_da_forecast
@@ -12,13 +13,14 @@ from historical_error_scenarios import (
     build_error_path_pool,
     make_historical_error_scenario_builder,
 )
-from run_backtest import _load_actual, _load_dc_actual, _load_forecast
+from run_backtest import _load_actual, _load_bm_actual, _load_dc_actual, _load_forecast
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--use-hourly-da", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--target-date", type=str, default=None, help="Target delivery date for scenario generation test")
     args = parser.parse_args()
 
     da_actual = _normalise_to_30min(
@@ -26,7 +28,7 @@ def main() -> None:
         "da_actual",
         fill_limit=1,
     )
-    bm_actual = _load_actual("processed/bmrs_processed.parquet", "systemSellPrice").to_frame("value")
+    bm_actual = _load_bm_actual()
     dc_low = _normalise_to_30min(
         _load_dc_actual("DCL").to_frame("value"),
         "dc_low_actual",
@@ -69,7 +71,13 @@ def main() -> None:
             f"std={values.std():.3f}, min={values.min():.3f}, max={values.max():.3f}"
         )
 
-    target_start = da_forecast.index.min().normalize() + np.timedelta64(60, "D")
+    if args.target_date is not None:
+        target_start = pd.Timestamp(args.target_date, tz="UTC")
+    else:
+        # A 45-day warm-up lands on 2022-03-15 in GMT, with >40 eligible GMT days in the pool.
+        # (A 60-day offset lands on 2022-03-30, immediately after the spring clock change into BST,
+        # where only 1 BST day exists in the pool before the cutoff).
+        target_start = da_forecast.index.min().normalize() + np.timedelta64(45, "D")
     index = da_forecast.loc[target_start:].index[:48]
     if len(index) != 48:
         raise RuntimeError("No complete target day exists after the pool warm-up")

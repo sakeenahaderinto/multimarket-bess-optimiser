@@ -9,7 +9,7 @@ import pandas as pd
 
 from backtest.engine import _normalise_to_30min
 from historical_error_scenarios import build_error_path_pool
-from run_backtest import _load_actual, _load_dc_actual, _load_forecast
+from run_backtest import _load_actual, _load_bm_actual, _load_dc_actual, _load_forecast
 
 
 def main() -> None:
@@ -24,7 +24,7 @@ def main() -> None:
 
     da_actual = _load_actual("processed/day_ahead_processed.parquet", "value").to_frame("value")
     da_actual = _normalise_to_30min(da_actual, "da_actual", fill_limit=1)
-    bm_actual = _load_actual("processed/bmrs_processed.parquet", "systemSellPrice").to_frame("value")
+    bm_actual = _load_bm_actual()
     dc_low = _normalise_to_30min(
         _load_dc_actual("DCL").to_frame("value"),
         "dc_low_actual",

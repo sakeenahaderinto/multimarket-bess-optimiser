@@ -51,6 +51,43 @@ def _load_actual(glob_pattern: str, value_col: str) -> pd.Series:
     return combined[value_col]
 
 
+def _load_bm_actual() -> pd.DataFrame:
+    """Load latest BM targets with their paired publication timestamps."""
+    path = DATA_DIR / "processed" / "bmrs_processed.parquet"
+    if not path.exists():
+        raise FileNotFoundError(f"BM actual file not found: {path}")
+
+    frame = pd.read_parquet(path)
+    required = {"startTime", "createdDateTime", "systemSellPrice"}
+    missing = required - set(frame.columns)
+    if missing:
+        raise ValueError(f"{path} is missing columns: {sorted(missing)}")
+    frame["startTime"] = pd.to_datetime(frame["startTime"], utc=True, errors="coerce")
+    frame["createdDateTime"] = pd.to_datetime(
+        frame["createdDateTime"],
+        utc=True,
+        errors="coerce",
+    )
+    if frame[["startTime", "createdDateTime"]].isna().any().any():
+        raise ValueError("BM actuals contain invalid settlement or publication timestamps")
+
+    latest = (
+        frame.sort_values(["startTime", "createdDateTime"])
+        .drop_duplicates(subset="startTime", keep="last")
+        .set_index("startTime")
+        .sort_index()
+    )
+    if (latest["createdDateTime"] < latest.index).any():
+        raise ValueError("BM actuals contain publication times before settlement start")
+    latest.index = _ensure_utc(latest.index, "BM actual")
+    return latest[["systemSellPrice", "createdDateTime"]].rename(
+        columns={
+            "systemSellPrice": "value",
+            "createdDateTime": "bm_target_created_time",
+        }
+    )
+
+
 def _load_forecast(model_id: str, period: str) -> pd.DataFrame:
     if period == "cv":
         path = DATA_DIR / "forecasts" / f"{model_id}_oof_2022_2024.parquet"
@@ -138,7 +175,8 @@ def main() -> None:
         end = args.end or "2025-12-31"
 
     da_actual = _load_actual("processed/day_ahead_processed.parquet", "value")
-    bm_actual = _load_actual("processed/bmrs_processed.parquet", "systemSellPrice")
+    bm_actual_frame = _load_bm_actual()
+    bm_actual = bm_actual_frame["value"]
     dc_low_actual = _load_dc_actual("DCL")
     dc_high_actual = _load_dc_actual("DCH")
 
