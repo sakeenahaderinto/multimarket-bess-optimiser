@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from functools import lru_cache
 import logging
+from functools import lru_cache
 
 import numpy as np
 import pandas as pd
@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 N_SCENARIOS = 20
 _Z10 = float(norm.ppf(0.10))
 _Z90 = float(norm.ppf(0.90))
+BM_TARGET_AVAILABILITY_COL = "bm_target_created_time"
 
 
 def _efa_block_groups(window_start: pd.Timestamp, horizon: int) -> list[tuple[int, int]]:
@@ -120,13 +121,35 @@ def _historical_residual_frame(
     )
 
     bm_frame = pd.read_parquet(bm_path)
-    bm_frame["startTime"] = pd.to_datetime(bm_frame["startTime"], utc=True)
-    bm_actual = (
-        bm_frame.set_index("startTime")["systemSellPrice"]
-        .sort_index()
-        .groupby(level=0)
-        .last()
+    required_bm_columns = {"startTime", "createdDateTime", "systemSellPrice"}
+    missing_bm_columns = required_bm_columns - set(bm_frame.columns)
+    if missing_bm_columns:
+        raise ValueError(
+            "BM actuals are missing publication metadata: "
+            f"{sorted(missing_bm_columns)}"
+        )
+    bm_frame["startTime"] = pd.to_datetime(
+        bm_frame["startTime"],
+        utc=True,
+        errors="coerce",
     )
+    bm_frame["createdDateTime"] = pd.to_datetime(
+        bm_frame["createdDateTime"],
+        utc=True,
+        errors="coerce",
+    )
+    if bm_frame[["startTime", "createdDateTime"]].isna().any().any():
+        raise ValueError("BM actuals contain invalid settlement or publication timestamps")
+    bm_latest = (
+        bm_frame.sort_values(["startTime", "createdDateTime"])
+        .drop_duplicates(subset="startTime", keep="last")
+        .set_index("startTime")
+        .sort_index()
+    )
+    if (bm_latest["createdDateTime"] < bm_latest.index).any():
+        raise ValueError("BM actuals contain publication times before settlement start")
+    bm_actual = bm_latest["systemSellPrice"]
+    bm_target_created_time = bm_latest["createdDateTime"]
 
     dcl_actual = _dc_actual("DCL")
     dch_actual = _dc_actual("DCH")
@@ -142,9 +165,50 @@ def _historical_residual_frame(
             second_name: second_actual - second_forecast,
             "dc_low": dcl_actual - dcl_q50,
             "dc_high": dch_actual - dch_q50,
+            BM_TARGET_AVAILABILITY_COL: bm_target_created_time,
         }
     ).dropna()
     return residuals.sort_index()
+
+
+def _residual_history_available_by(
+    residuals: pd.DataFrame,
+    cutoff_date: object,
+) -> pd.DataFrame:
+    """Return residual observations whose final BM target was published by cutoff."""
+    cutoff = ensure_utc_timestamp(cutoff_date, "cutoff_date")
+    if BM_TARGET_AVAILABILITY_COL not in residuals.columns:
+        raise ValueError(
+            f"Residual history is missing {BM_TARGET_AVAILABILITY_COL!r}"
+        )
+    if not isinstance(residuals.index, pd.DatetimeIndex) or residuals.index.tz is None:
+        raise ValueError("Residual history must use a timezone-aware DatetimeIndex")
+
+    publication = pd.to_datetime(
+        residuals[BM_TARGET_AVAILABILITY_COL],
+        utc=True,
+        errors="coerce",
+    )
+    if publication.isna().any():
+        first = publication[publication.isna()].index[0]
+        raise ValueError(f"Residual at {first} has no valid BM publication time")
+    published_before_settlement = publication < residuals.index
+    if published_before_settlement.any():
+        first = published_before_settlement[published_before_settlement].index[0]
+        raise ValueError(f"BM publication time precedes settlement start at {first}")
+
+    residual_columns = [
+        column
+        for column in ("da", "bm", "spread", "dc_low", "dc_high")
+        if column in residuals.columns
+    ]
+    if len(residual_columns) != 4 or not {"da", "dc_low", "dc_high"}.issubset(
+        residual_columns
+    ):
+        raise ValueError("Residual history does not contain one complete market set")
+
+    available = (residuals.index < cutoff) & publication.le(cutoff)
+    return residuals.loc[available, residual_columns]
 
 
 def _estimate_correlation_matrix(
@@ -161,7 +225,15 @@ def _estimate_correlation_matrix(
             logger.warning("OOF residuals are unavailable. Using default correlation.")
             return _default_correlation_matrix(use_spread)
 
-        history = residuals[residuals.index < cutoff]
+        settlement_history_count = int((residuals.index < cutoff).sum())
+        history = _residual_history_available_by(residuals, cutoff)
+        excluded_unpublished = settlement_history_count - len(history)
+        if excluded_unpublished:
+            logger.info(
+                "Excluded %d OOF residuals whose BM targets were unpublished at %s",
+                excluded_unpublished,
+                cutoff,
+            )
         if len(history) < 500:
             logger.warning(
                 "Only %d residual observations exist before %s. Using defaults.",
