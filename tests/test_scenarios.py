@@ -117,3 +117,41 @@ def test_temporal_correlation_must_be_stationary():
             corr_matrix=np.eye(4),
             temporal_correlation=1.0,
         )
+
+
+def test_post_eac_dc_scenarios_preserve_negative_prices():
+    index = pd.date_range("2025-01-15", periods=8, freq="30min", tz="UTC")
+    energy = _forecast(index, 50.0, 0.0)
+    negative_dc = _forecast(index, -2.0, 0.0)
+
+    output = sample_scenarios_multimarket(
+        energy,
+        energy,
+        negative_dc,
+        negative_dc,
+        n=3,
+        seed=4,
+        corr_matrix=np.eye(4),
+    )
+
+    assert np.all(np.asarray(output["dc_low"]) == -2.0)
+    assert np.all(np.asarray(output["dc_high"]) == -2.0)
+
+
+def test_pre_eac_dc_scenarios_retain_historical_zero_floor():
+    index = pd.date_range("2023-10-15", periods=8, freq="30min", tz="UTC")
+    energy = _forecast(index, 50.0, 0.0)
+    negative_dc = _forecast(index, -2.0, 0.0)
+
+    output = sample_scenarios_multimarket(
+        energy,
+        energy,
+        negative_dc,
+        negative_dc,
+        n=3,
+        seed=4,
+        corr_matrix=np.eye(4),
+    )
+
+    assert np.all(np.asarray(output["dc_low"]) == 0.0)
+    assert np.all(np.asarray(output["dc_high"]) == 0.0)

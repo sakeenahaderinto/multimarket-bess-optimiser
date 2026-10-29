@@ -10,6 +10,7 @@ import pandas as pd
 from baselines.scenarios import _block_avg_1d, _col
 from excluded_dates import is_excluded
 from market_calendar import (
+    apply_dc_price_domain,
     last_complete_half_hour_start_times,
     realised_data_cutoff_time,
 )
@@ -189,6 +190,11 @@ def make_historical_error_scenario_builder(
 
         target_timestamp = pd.Timestamp(window_start)
         target_date = target_timestamp.date()
+        delivery_index = pd.date_range(
+            target_timestamp,
+            periods=horizon,
+            freq="30min",
+        )
         information_cutoff = realised_data_cutoff_time(target_timestamp)
         available = np.where(pool_availability <= information_cutoff)[0]
 
@@ -216,8 +222,8 @@ def make_historical_error_scenario_builder(
 
         weights = None
         if use_regime_weights:
-            target_index = pd.DatetimeIndex([pd.Timestamp(target_date, tz="UTC")])
-            last_period = last_complete_half_hour_start_times(target_index)[0]
+            target_day_index = pd.DatetimeIndex([pd.Timestamp(target_date, tz="UTC")])
+            last_period = last_complete_half_hour_start_times(target_day_index)[0]
             lookback = pd.date_range(end=last_period, periods=7 * 48, freq="30min")
             target_window = _col(da_actual).reindex(lookback).dropna()
             target_volatility = (
@@ -281,8 +287,14 @@ def make_historical_error_scenario_builder(
                     q50[market][target_slice][np.newaxis, :] + residual
                 )
 
-        scenarios["dc_low"] = np.maximum(scenarios["dc_low"], 0.0)
-        scenarios["dc_high"] = np.maximum(scenarios["dc_high"], 0.0)
+        scenarios["dc_low"] = apply_dc_price_domain(
+            scenarios["dc_low"],
+            delivery_index,
+        )
+        scenarios["dc_high"] = apply_dc_price_domain(
+            scenarios["dc_high"],
+            delivery_index,
+        )
         scenarios["seed"] = seed
         return scenarios
 

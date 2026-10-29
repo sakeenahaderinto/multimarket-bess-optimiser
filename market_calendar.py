@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import date as date_type
 from datetime import datetime, time, timedelta
 
+import numpy as np
 import pandas as pd
 
 UTC = "UTC"
@@ -22,6 +23,7 @@ LONDON_TZ = "Europe/London"
 N2EX_GATE_TIME_UTC = time(9, 50)
 REALISED_DATA_CUTOFF_TIME_UTC = time(9, 0)
 PERIOD = pd.Timedelta(minutes=30)
+EAC_NEGATIVE_PRICING_START = pd.Timestamp("2023-11-01", tz=UTC)
 
 
 def ensure_utc_index(index: pd.DatetimeIndex, name: str = "index") -> pd.DatetimeIndex:
@@ -41,6 +43,29 @@ def ensure_utc_timestamp(value: object, name: str = "timestamp") -> pd.Timestamp
     else:
         timestamp = timestamp.tz_convert(UTC)
     return timestamp
+
+
+def apply_dc_price_domain(
+    values: np.ndarray,
+    delivery_index: pd.DatetimeIndex,
+) -> np.ndarray:
+    """Apply the historical DC clearing-price floor along the final array axis.
+
+    The predecessor FRA regime used a zero lower price bound. The EAC regime,
+    introduced in November 2023, permits negative response clearing prices.
+    """
+    import numpy as np
+
+    index = ensure_utc_index(delivery_index, "DC delivery index")
+    result = np.asarray(values, dtype=float).copy()
+    if result.ndim == 0 or result.shape[-1] != len(index):
+        raise ValueError(
+            "DC price values must have delivery periods on the final axis; "
+            f"got shape {result.shape} for {len(index)} timestamps"
+        )
+    old_regime = index < EAC_NEGATIVE_PRICING_START
+    result[..., old_regime] = np.maximum(result[..., old_regime], 0.0)
+    return result
 
 
 def _delivery_midnights(index: pd.DatetimeIndex) -> pd.DatetimeIndex:

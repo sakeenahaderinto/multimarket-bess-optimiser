@@ -1,6 +1,8 @@
+import numpy as np
 import pandas as pd
 
 from market_calendar import (
+    apply_dc_price_domain,
     efa_block_groups,
     is_complete_efa_group,
     last_complete_half_hour_start_times,
@@ -8,6 +10,24 @@ from market_calendar import (
     n2ex_gate_times,
     realised_data_cutoff_times,
 )
+
+
+def test_dc_price_domain_is_regime_aware():
+    index = pd.DatetimeIndex(
+        ["2023-10-31 23:30Z", "2023-11-01 00:00Z", "2023-11-01 00:30Z"]
+    )
+    values = np.array([[-2.0, -3.0, 4.0], [-5.0, 6.0, -7.0]])
+
+    result = apply_dc_price_domain(values, index)
+
+    assert np.array_equal(result, [[0.0, -3.0, 4.0], [0.0, 6.0, -7.0]])
+
+
+def test_dc_price_domain_requires_periods_on_final_axis():
+    index = pd.date_range("2025-01-01", periods=2, freq="30min", tz="UTC")
+
+    with np.testing.assert_raises_regex(ValueError, "final axis"):
+        apply_dc_price_domain(np.zeros((2, 3)), index)
 
 
 def test_information_times_are_on_previous_day():

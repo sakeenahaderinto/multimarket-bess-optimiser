@@ -12,6 +12,7 @@ from scipy.stats import norm
 from config import settings
 from data_integrity import collapse_identical_duplicates, validate_quantile_forecast
 from market_calendar import (
+    apply_dc_price_domain,
     efa_block_groups,
     ensure_utc_timestamp,
     realised_data_cutoff_time,
@@ -500,8 +501,8 @@ def sample_scenarios_multimarket(
         if use_spread
         else np.asarray(output["second"])
     )
-    output["dc_low"] = np.maximum(np.asarray(output["dc_low"]), 0.0)
-    output["dc_high"] = np.maximum(np.asarray(output["dc_high"]), 0.0)
+    output["dc_low"] = apply_dc_price_domain(output["dc_low"], reference_index)
+    output["dc_high"] = apply_dc_price_domain(output["dc_high"], reference_index)
     del output["second"]
     output["seed"] = seed
     return output

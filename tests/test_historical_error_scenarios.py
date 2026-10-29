@@ -161,6 +161,35 @@ def test_historical_sampler_clips_only_when_explicitly_requested() -> None:
     assert np.all(np.asarray(scenarios["da"]) == 0.0)
 
 
+def test_historical_sampler_preserves_post_eac_negative_dc_prices() -> None:
+    pool = tail_pool()
+    pool["da"][:] = 0.0
+    pool["bm"][:] = 0.0
+    pool["dc_low"][:] = -2.0
+    pool["dc_high"][:] = -3.0
+    target_start = pd.Timestamp("2024-03-15", tz="UTC")
+    target_index = pd.date_range(target_start, periods=48, freq="30min")
+    zero_forecast = forecast(target_index)
+    builder = make_historical_error_scenario_builder(
+        pool,
+        n=3,
+        match_dst_regime=False,
+    )
+
+    output = builder(
+        target_start,
+        48,
+        zero_forecast,
+        zero_forecast,
+        zero_forecast,
+        zero_forecast,
+        seed=7,
+    )
+
+    assert np.all(np.asarray(output["dc_low"]) == -2.0)
+    assert np.all(np.asarray(output["dc_high"]) == -3.0)
+
+
 @pytest.mark.parametrize("error_cap_pct", [-0.1, 0.0, 1.0, 1.1])
 def test_historical_sampler_rejects_ambiguous_error_cap(
     error_cap_pct: float,

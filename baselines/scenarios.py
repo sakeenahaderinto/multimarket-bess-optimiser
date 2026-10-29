@@ -7,7 +7,7 @@ from collections.abc import Callable
 import numpy as np
 import pandas as pd
 
-from market_calendar import efa_block_groups
+from market_calendar import apply_dc_price_domain, efa_block_groups
 
 ScenarioBuilder = Callable[..., dict]
 
@@ -75,11 +75,12 @@ def build_median_scenario(
         horizon,
         window_start,
     )
+    delivery_index = pd.date_range(window_start, periods=horizon, freq="30min")
     return {
         "da": da[np.newaxis, :],
         "bm": bm[np.newaxis, :],
-        "dc_low": np.maximum(dc_low, 0.0)[np.newaxis, :],
-        "dc_high": np.maximum(dc_high, 0.0)[np.newaxis, :],
+        "dc_low": apply_dc_price_domain(dc_low, delivery_index)[np.newaxis, :],
+        "dc_high": apply_dc_price_domain(dc_high, delivery_index)[np.newaxis, :],
         "seed": seed,
     }
 
@@ -138,11 +139,12 @@ def make_naive_scenario_builder(
         bm = extract("bm")
         dc_low = _block_avg_1d(extract("dc_low"), horizon, window_start)
         dc_high = _block_avg_1d(extract("dc_high"), horizon, window_start)
+        delivery_index = pd.date_range(window_start, periods=horizon, freq="30min")
         return {
             "da": da[np.newaxis, :],
             "bm": bm[np.newaxis, :],
-            "dc_low": np.maximum(dc_low, 0.0)[np.newaxis, :],
-            "dc_high": np.maximum(dc_high, 0.0)[np.newaxis, :],
+            "dc_low": apply_dc_price_domain(dc_low, delivery_index)[np.newaxis, :],
+            "dc_high": apply_dc_price_domain(dc_high, delivery_index)[np.newaxis, :],
             "seed": seed,
         }
 

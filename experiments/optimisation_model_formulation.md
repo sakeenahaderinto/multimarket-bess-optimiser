@@ -237,6 +237,11 @@ For every forecast row the latent normal variable is transformed by a two-piece 
 
 DC latent draws and DC quantiles are held constant within EFA blocks.
 
+The DC price domain is regime-aware. Delivery periods before 1 November 2023
+retain the predecessor auction's zero lower bound. From the EAC transition onward,
+negative DCL and DCH prices are valid and are not truncated. This rule is applied to
+copula, historical-error, median, and naïve scenario builders.
+
 ## 12. Settlement
 
 Only the 48 modelled periods are settled. DA revenue is:
