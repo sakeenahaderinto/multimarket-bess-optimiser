@@ -131,3 +131,81 @@ def test_dependence_estimation_returns_publication_safe_temporal_parameter(
 
     assert correlation.shape == (4, 4)
     assert 0.75 < temporal_correlation < 0.9
+
+
+def test_dependence_estimation_uses_defaults_when_inputs_are_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        scenarios,
+        "_historical_residual_frame",
+        lambda _use_spread, _da_model_id: None,
+    )
+
+    correlation, temporal_correlation = _estimate_dependence_parameters()
+
+    assert np.array_equal(correlation, scenarios._default_correlation_matrix())
+    assert temporal_correlation == 0.0
+
+
+def test_dependence_estimation_uses_defaults_for_insufficient_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    index = pd.date_range("2024-01-01", periods=499, freq="30min", tz="UTC")
+    residuals = residual_frame(index)
+    monkeypatch.setattr(
+        scenarios,
+        "_historical_residual_frame",
+        lambda _use_spread, _da_model_id: residuals,
+    )
+
+    correlation, temporal_correlation = _estimate_dependence_parameters(
+        cutoff_date=index[-1] + pd.Timedelta(hours=1)
+    )
+
+    assert np.array_equal(correlation, scenarios._default_correlation_matrix())
+    assert temporal_correlation == 0.0
+
+
+def test_dependence_estimation_propagates_data_integrity_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def invalid_source(_use_spread: bool, _da_model_id: str) -> pd.DataFrame:
+        raise ValueError("conflicting duplicate DA actuals")
+
+    monkeypatch.setattr(scenarios, "_historical_residual_frame", invalid_source)
+
+    with pytest.raises(ValueError, match="conflicting duplicate DA actuals"):
+        _estimate_dependence_parameters()
+
+
+def test_dependence_estimation_rejects_non_finite_residual(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    index = pd.date_range("2024-01-01", periods=600, freq="30min", tz="UTC")
+    residuals = residual_frame(index)
+    residuals.loc[index[100], "dc_low"] = np.inf
+    monkeypatch.setattr(
+        scenarios,
+        "_historical_residual_frame",
+        lambda _use_spread, _da_model_id: residuals,
+    )
+
+    with pytest.raises(ValueError, match="non-finite value.*'dc_low'"):
+        _estimate_dependence_parameters(cutoff_date=index[-1] + pd.Timedelta(hours=1))
+
+
+def test_dependence_estimation_rejects_undefined_correlation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    index = pd.date_range("2024-01-01", periods=600, freq="30min", tz="UTC")
+    residuals = residual_frame(index)
+    residuals["dc_low"] = 1.0
+    monkeypatch.setattr(
+        scenarios,
+        "_historical_residual_frame",
+        lambda _use_spread, _da_model_id: residuals,
+    )
+
+    with pytest.raises(ValueError, match="correlation is undefined"):
+        _estimate_dependence_parameters(cutoff_date=index[-1] + pd.Timedelta(hours=1))

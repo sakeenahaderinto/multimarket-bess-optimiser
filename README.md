@@ -31,6 +31,11 @@ E --> F[Walk-Forward Backtest]
 5. **Optimisation**: A Pyomo-based MIP that maximises expected net revenue across generated price scenarios over a 24-hour delivery day. Solved using the HiGHS solver.
 6. **Backtesting**: Walks forward day-by-day, solving the MIP using out-of-sample forecast scenarios and settling revenue against actual, realised market prices to accurately evaluate strategy performance. Any window with missing settlement periods is dropped from the backtest.
 
+Copula dependence falls back to the configured default matrix and zero temporal
+persistence only when OOF residual inputs are unavailable or fewer than 500
+publication-eligible observations exist. Malformed, non-finite, or degenerate residual
+data raises an error rather than silently changing the stochastic model.
+
 ---
 
 ## Markets Modelled

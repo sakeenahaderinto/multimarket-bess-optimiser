@@ -53,6 +53,15 @@ def _default_correlation_matrix(use_spread: bool = False) -> np.ndarray:
     )
 
 
+def _default_dependence_parameters(
+    use_spread: bool,
+    reason: str,
+) -> tuple[np.ndarray, float]:
+    """Return documented fallback parameters for an expected lack of history."""
+    logger.warning("Using default copula dependence because %s", reason)
+    return _default_correlation_matrix(use_spread), 0.0
+
+
 def _nearest_correlation(matrix: np.ndarray, minimum_eigenvalue: float = 1e-6) -> np.ndarray:
     """Return a symmetric positive-definite correlation matrix."""
     symmetric = (matrix + matrix.T) / 2.0
@@ -118,14 +127,10 @@ def _historical_residual_frame(
 
     da_frame = pd.read_parquet(da_path)
     da_frame["datetime"] = pd.to_datetime(da_frame["datetime"], utc=True)
-    da_actual = (
-        da_frame.set_index("datetime")["value"]
-        .sort_index()
-        .groupby(level=0)
-        .last()
-        .resample("30min")
-        .ffill(limit=1)
-    )
+    da_actual = collapse_identical_duplicates(
+        da_frame.set_index("datetime")["value"],
+        "dependence-estimation DA actuals",
+    ).resample("30min").ffill(limit=1)
 
     bm_frame = pd.read_parquet(bm_path)
     required_bm_columns = {"startTime", "createdDateTime", "systemSellPrice"}
@@ -294,43 +299,52 @@ def _estimate_dependence_parameters(
 ) -> tuple[np.ndarray, float]:
     """Estimate contemporaneous and lag-one copula dependence before cutoff."""
     cutoff = ensure_utc_timestamp(cutoff_date, "cutoff_date")
+    residuals = _historical_residual_frame(use_spread, da_model_id)
+    if residuals is None:
+        return _default_dependence_parameters(
+            use_spread,
+            "OOF residual inputs are unavailable",
+        )
 
-    try:
-        residuals = _historical_residual_frame(use_spread, da_model_id)
-        if residuals is None:
-            logger.warning("OOF residuals are unavailable. Using default dependence.")
-            return _default_correlation_matrix(use_spread), 0.0
-
-        settlement_history_count = int((residuals.index < cutoff).sum())
-        history = _residual_history_available_by(residuals, cutoff)
-        excluded_unpublished = settlement_history_count - len(history)
-        if excluded_unpublished:
-            logger.info(
-                "Excluded %d OOF residuals whose BM targets were unpublished at %s",
-                excluded_unpublished,
-                cutoff,
-            )
-        if len(history) < MIN_DEPENDENCE_OBSERVATIONS:
-            logger.warning(
-                "Only %d residual observations exist before %s. Using defaults.",
-                len(history),
-                cutoff,
-            )
-            return _default_correlation_matrix(use_spread), 0.0
-
-        spearman = history.corr(method="spearman").to_numpy(dtype=float)
-        gaussian = 2.0 * np.sin(np.pi * spearman / 6.0)
-        correlation = _nearest_correlation(gaussian)
+    settlement_history_count = int((residuals.index < cutoff).sum())
+    history = _residual_history_available_by(residuals, cutoff)
+    excluded_unpublished = settlement_history_count - len(history)
+    if excluded_unpublished:
         logger.info(
-            "Residual correlation estimated from %d observations before %s",
-            len(history),
+            "Excluded %d OOF residuals whose BM targets were unpublished at %s",
+            excluded_unpublished,
             cutoff,
         )
-        temporal_correlation = _estimate_temporal_correlation_from_history(history)
-        return correlation, temporal_correlation
-    except Exception as exc:
-        logger.exception("Dependence estimation failed: %s", exc)
-        return _default_correlation_matrix(use_spread), 0.0
+    if len(history) < MIN_DEPENDENCE_OBSERVATIONS:
+        return _default_dependence_parameters(
+            use_spread,
+            f"only {len(history)} publication-eligible residual observations exist "
+            f"before {cutoff}; at least {MIN_DEPENDENCE_OBSERVATIONS} are required",
+        )
+
+    values = history.to_numpy(dtype=float)
+    if not np.isfinite(values).all():
+        row, column = np.argwhere(~np.isfinite(values))[0]
+        raise ValueError(
+            "Dependence residual history contains a non-finite value at "
+            f"{history.index[row]} for {history.columns[column]!r}"
+        )
+
+    spearman = history.corr(method="spearman").to_numpy(dtype=float)
+    if not np.isfinite(spearman).all():
+        raise ValueError(
+            "Dependence correlation is undefined; check residual columns for "
+            "constant or otherwise degenerate values"
+        )
+    gaussian = 2.0 * np.sin(np.pi * spearman / 6.0)
+    correlation = _nearest_correlation(gaussian)
+    logger.info(
+        "Residual correlation estimated from %d observations before %s",
+        len(history),
+        cutoff,
+    )
+    temporal_correlation = _estimate_temporal_correlation_from_history(history)
+    return correlation, temporal_correlation
 
 
 def _estimate_correlation_matrix(
