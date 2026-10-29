@@ -137,14 +137,20 @@ def make_historical_error_scenario_builder(
     n: int = 20,
     da_actual: pd.DataFrame | None = None,
     recency_halflife: float = 90.0,
-    error_cap_pct: float = 0.95,
+    error_cap_pct: float | None = None,
     match_dst_regime: bool = True,
 ):
-    """Return a leakage-safe historical error-path scenario builder."""
+    """Return a leakage-safe historical error-path scenario builder.
+
+    Residual paths are uncensored by default. ``error_cap_pct`` enables an
+    explicit absolute-residual winsorisation sensitivity when set in (0, 1).
+    """
     if n <= 0:
         raise ValueError("n must be positive")
     if recency_halflife <= 0:
         raise ValueError("recency_halflife must be positive")
+    if error_cap_pct is not None and not 0.0 < error_cap_pct < 1.0:
+        raise ValueError("error_cap_pct must be strictly between 0 and 1, or None")
 
     pool_dates = np.asarray(error_pool["dates"], dtype=object)
     pool_volumes = np.asarray(error_pool.get("da_vol_7d"), dtype=float)
@@ -198,7 +204,7 @@ def make_historical_error_scenario_builder(
 
         caps: dict[str, float | None] = {}
         for market in ("da", "bm", "dc_low", "dc_high"):
-            if 0 < error_cap_pct < 1:
+            if error_cap_pct is not None:
                 caps[market] = float(
                     np.percentile(
                         np.abs(np.asarray(error_pool[market])[available]),

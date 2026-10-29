@@ -173,7 +173,15 @@ def main() -> None:
     parser.add_argument("--use-hourly-da", action="store_true")
     parser.add_argument("--n-scenarios", type=int, default=50)
     parser.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4])
-    parser.add_argument("--error-cap-pct", type=float, default=0.95)
+    parser.add_argument(
+        "--error-cap-pct",
+        type=float,
+        default=None,
+        help=(
+            "Optional absolute-residual winsorisation percentile in (0, 1). "
+            "By default historical error paths are not clipped."
+        ),
+    )
     args = parser.parse_args()
 
     da_actual = _load_actual("processed/day_ahead_processed.parquet", "value").to_frame("value")

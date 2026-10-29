@@ -68,7 +68,6 @@ def test_historical_sampler_excludes_path_unpublished_at_forecast_origin() -> No
     builder = make_historical_error_scenario_builder(
         pool,
         n=500,
-        error_cap_pct=1.0,
         match_dst_regime=False,
     )
 
@@ -106,3 +105,68 @@ def test_historical_sampler_rejects_availability_before_path_settlement() -> Non
 
     with pytest.raises(ValueError, match="available before it settled"):
         make_historical_error_scenario_builder(pool)
+
+
+def tail_pool() -> dict:
+    dates = np.asarray(
+        [timestamp.date() for timestamp in pd.date_range("2024-01-01", periods=30)],
+        dtype=object,
+    )
+    paths = np.zeros((30, 48), dtype=float)
+    paths[:, 0] = 1_000.0
+    return {
+        "dates": dates,
+        "da": paths,
+        "bm": paths.copy(),
+        "dc_low": paths.copy(),
+        "dc_high": paths.copy(),
+        "da_vol_7d": np.full(30, np.nan),
+        "utc_offset_minutes": np.zeros(30, dtype=int),
+        "bm_available_time": pd.DatetimeIndex(
+            pd.to_datetime(dates, utc=True) + pd.Timedelta(days=1)
+        ),
+    }
+
+
+def sample_tail_pool(error_cap_pct: float | None = None) -> dict:
+    target_start = pd.Timestamp("2024-03-15", tz="UTC")
+    target_index = pd.date_range(target_start, periods=48, freq="30min")
+    zero_forecast = forecast(target_index)
+    builder = make_historical_error_scenario_builder(
+        tail_pool(),
+        n=5,
+        error_cap_pct=error_cap_pct,
+        match_dst_regime=False,
+    )
+    return builder(
+        target_start,
+        48,
+        zero_forecast,
+        zero_forecast,
+        zero_forecast,
+        zero_forecast,
+        seed=3,
+    )
+
+
+def test_historical_sampler_preserves_tail_residuals_by_default() -> None:
+    scenarios = sample_tail_pool()
+
+    assert np.all(np.asarray(scenarios["da"])[:, 0] == 1_000.0)
+
+
+def test_historical_sampler_clips_only_when_explicitly_requested() -> None:
+    scenarios = sample_tail_pool(error_cap_pct=0.95)
+
+    assert np.all(np.asarray(scenarios["da"]) == 0.0)
+
+
+@pytest.mark.parametrize("error_cap_pct", [-0.1, 0.0, 1.0, 1.1])
+def test_historical_sampler_rejects_ambiguous_error_cap(
+    error_cap_pct: float,
+) -> None:
+    with pytest.raises(ValueError, match="strictly between 0 and 1"):
+        make_historical_error_scenario_builder(
+            tail_pool(),
+            error_cap_pct=error_cap_pct,
+        )

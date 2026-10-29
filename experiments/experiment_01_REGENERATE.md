@@ -38,6 +38,10 @@ historical joint OOF error paths with CVaR
 perfect foresight for a clearly labelled upper-bound diagnostic only
 ```
 
+The primary historical-error-path results must use uncensored residual paths. If
+`--error-cap-pct` is used, label the result as a winsorisation sensitivity and
+report the percentile, market-specific cap values, and number of altered cells.
+
 ## Required forecast metrics
 
 For DA and the BM proxy report MAE, q10 pinball loss, q90 pinball loss, 80 percent interval coverage and Winkler score at their evaluated timestamp resolution.
