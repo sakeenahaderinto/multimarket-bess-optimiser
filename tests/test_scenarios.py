@@ -87,3 +87,33 @@ def test_spread_mode_constructs_bm_as_da_plus_spread():
     implied_spread = np.asarray(output["bm"]) - np.asarray(output["da"])
     assert np.all(np.isfinite(implied_spread))
     assert np.mean(implied_spread) < 50.0
+
+
+def test_temporal_correlation_creates_persistent_energy_price_paths():
+    index = pd.date_range("2025-01-15", periods=48, freq="30min", tz="UTC")
+    forecasts = [_forecast(index, centre, 10.0) for centre in (80.0, 90.0, 5.0, 4.0)]
+
+    output = sample_scenarios_multimarket(
+        *forecasts,
+        n=2_000,
+        seed=9,
+        corr_matrix=np.eye(4),
+        temporal_correlation=0.8,
+    )
+
+    da = np.asarray(output["da"])
+    empirical_lag_one = np.corrcoef(da[:, :-1].ravel(), da[:, 1:].ravel())[0, 1]
+    assert 0.75 < empirical_lag_one < 0.85
+
+
+def test_temporal_correlation_must_be_stationary():
+    index = pd.date_range("2025-01-15", periods=2, freq="30min", tz="UTC")
+    forecasts = [_forecast(index, centre, 10.0) for centre in (80.0, 90.0, 5.0, 4.0)]
+
+    with np.testing.assert_raises_regex(ValueError, "strictly between -1 and 1"):
+        sample_scenarios_multimarket(
+            *forecasts,
+            n=2,
+            corr_matrix=np.eye(4),
+            temporal_correlation=1.0,
+        )

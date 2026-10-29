@@ -12,9 +12,13 @@ from pyomo.opt import TerminationCondition
 from backtest.engine import DEFAULT_BATTERY, DEFAULT_OPT_SETTINGS, _normalise_to_30min
 from baselines.scenarios import build_median_scenario
 from features.pipeline_da_hourly import upsample_da_forecast
+from market_calendar import realised_data_cutoff_time
 from optimiser.model import build_model
-from optimiser.scenarios import _estimate_correlation_matrix, sample_scenarios_multimarket
-from run_backtest import _load_actual, _load_dc_actual, _load_forecast
+from optimiser.scenarios import (
+    _estimate_dependence_parameters,
+    sample_scenarios_multimarket,
+)
+from run_backtest import _load_actual, _load_forecast
 
 
 def main() -> None:
@@ -60,8 +64,8 @@ def main() -> None:
             args.seed,
         )
     else:
-        correlation = _estimate_correlation_matrix(
-            cutoff_date=start,
+        correlation, temporal_correlation = _estimate_dependence_parameters(
+            cutoff_date=realised_data_cutoff_time(start),
             da_model_id=("da_hourly" if args.use_hourly_da else "da"),
         )
         scenarios = sample_scenarios_multimarket(
@@ -72,6 +76,7 @@ def main() -> None:
             n=args.n_scenarios,
             seed=args.seed,
             corr_matrix=correlation,
+            temporal_correlation=temporal_correlation,
         )
 
     settings = DEFAULT_OPT_SETTINGS.copy()
@@ -100,12 +105,12 @@ def main() -> None:
                 "datetime": timestamp,
                 "da_actual": float(da_actual.iloc[t, 0]),
                 "bm_ssp_actual": float(bm_actual.iloc[t, 0]),
-                "da_charge_mw": pyo.value(model.da_charge[t, DEFAULT_BATTERY["id"]),
-                "da_discharge_mw": pyo.value(model.da_discharge[t, DEFAULT_BATTERY["id"]),
-                "bm_proxy_offer_mw": pyo.value(model.bm_offer[t, DEFAULT_BATTERY["id"]),
+                "da_charge_mw": pyo.value(model.da_charge[t, DEFAULT_BATTERY["id"]]),
+                "da_discharge_mw": pyo.value(model.da_discharge[t, DEFAULT_BATTERY["id"]]),
+                "bm_proxy_offer_mw": pyo.value(model.bm_offer[t, DEFAULT_BATTERY["id"]]),
                 "bm_dispatch_scenario_std": float(dispatches.std()),
-                "dc_low_mw": pyo.value(model.dc_low[t, DEFAULT_BATTERY["id"]),
-                "dc_high_mw": pyo.value(model.dc_high[t, DEFAULT_BATTERY["id"]),
+                "dc_low_mw": pyo.value(model.dc_low[t, DEFAULT_BATTERY["id"]]),
+                "dc_high_mw": pyo.value(model.dc_high[t, DEFAULT_BATTERY["id"]]),
                 "soc": pyo.value(model.soc[t, DEFAULT_BATTERY["id"], 0]),
             }
         )

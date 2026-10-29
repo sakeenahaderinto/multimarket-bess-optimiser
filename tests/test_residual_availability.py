@@ -6,6 +6,8 @@ from optimiser import scenarios
 from optimiser.scenarios import (
     BM_TARGET_AVAILABILITY_COL,
     _estimate_correlation_matrix,
+    _estimate_dependence_parameters,
+    _estimate_temporal_correlation_from_history,
     _residual_history_available_by,
 )
 
@@ -82,3 +84,50 @@ def test_correlation_estimation_excludes_unpublished_residuals(
 
     assert correlation.shape == (4, 4)
     assert correlation[0, 1] > 0.999
+
+
+def test_temporal_estimation_uses_only_exact_consecutive_half_hours() -> None:
+    first = pd.date_range("2024-01-01", periods=4, freq="30min", tz="UTC")
+    second = pd.date_range("2024-01-03", periods=4, freq="30min", tz="UTC")
+    index = first.append(second)
+    # Each segment has positive persistence, while the cross-gap endpoints reverse.
+    values = np.array([0.0, 1.0, 2.0, 3.0, -3.0, -2.0, -1.0, 0.0])
+    history = pd.DataFrame({"da": values, "bm": values}, index=index)
+
+    estimate = _estimate_temporal_correlation_from_history(history, minimum_pairs=6)
+
+    assert estimate == 0.95
+
+
+def test_dependence_estimation_returns_publication_safe_temporal_parameter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    index = pd.date_range("2024-01-01", periods=700, freq="30min", tz="UTC")
+    rng = np.random.default_rng(4)
+    da = np.empty(len(index))
+    bm = np.empty(len(index))
+    da[0] = bm[0] = 0.0
+    for position in range(1, len(index)):
+        da[position] = 0.85 * da[position - 1] + rng.normal()
+        bm[position] = 0.85 * bm[position - 1] + rng.normal()
+    residuals = pd.DataFrame(
+        {
+            "da": da,
+            "bm": bm,
+            "dc_low": rng.normal(size=len(index)),
+            "dc_high": rng.normal(size=len(index)),
+            BM_TARGET_AVAILABILITY_COL: index + pd.Timedelta(minutes=20),
+        },
+        index=index,
+    )
+    cutoff = index[-1] + pd.Timedelta(hours=1)
+    monkeypatch.setattr(
+        scenarios,
+        "_historical_residual_frame",
+        lambda _use_spread, _da_model_id: residuals,
+    )
+
+    correlation, temporal_correlation = _estimate_dependence_parameters(cutoff_date=cutoff)
+
+    assert correlation.shape == (4, 4)
+    assert 0.75 < temporal_correlation < 0.9

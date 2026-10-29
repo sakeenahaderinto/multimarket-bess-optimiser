@@ -10,13 +10,19 @@ import pandas as pd
 from scipy.stats import norm
 
 from config import settings
-from market_calendar import efa_block_groups, ensure_utc_timestamp
+from market_calendar import (
+    efa_block_groups,
+    ensure_utc_timestamp,
+    realised_data_cutoff_time,
+)
 
 logger = logging.getLogger(__name__)
 N_SCENARIOS = 20
 _Z10 = float(norm.ppf(0.10))
 _Z90 = float(norm.ppf(0.90))
 BM_TARGET_AVAILABILITY_COL = "bm_target_created_time"
+MIN_DEPENDENCE_OBSERVATIONS = 500
+MAX_TEMPORAL_CORRELATION = 0.95
 
 
 def _efa_block_groups(window_start: pd.Timestamp, horizon: int) -> list[tuple[int, int]]:
@@ -211,19 +217,88 @@ def _residual_history_available_by(
     return residuals.loc[available, residual_columns]
 
 
-def _estimate_correlation_matrix(
+def _estimate_temporal_correlation_from_history(
+    history: pd.DataFrame,
+    minimum_pairs: int = MIN_DEPENDENCE_OBSERVATIONS,
+) -> float:
+    """Estimate a common lag-one Gaussian-copula correlation.
+
+    Only exact adjacent half-hours are paired. This prevents gaps between OOF
+    folds or missing observations from being treated as consecutive periods.
+    A common coefficient preserves the supplied contemporaneous correlation
+    matrix under the stationary AR(1) construction used by the sampler.
+    """
+    if minimum_pairs <= 0:
+        raise ValueError("minimum_pairs must be positive")
+    if not isinstance(history.index, pd.DatetimeIndex) or history.index.tz is None:
+        raise ValueError("Residual history must use a timezone-aware DatetimeIndex")
+    if history.index.has_duplicates:
+        raise ValueError("Residual history contains duplicate timestamps")
+    if not history.index.is_monotonic_increasing:
+        raise ValueError("Residual history must be sorted by timestamp")
+
+    second_column = "spread" if "spread" in history.columns else "bm"
+    required = {"da", second_column}
+    missing = required - set(history.columns)
+    if missing:
+        raise ValueError(
+            f"Residual history is missing temporal columns: {sorted(missing)}"
+        )
+
+    consecutive = history.index.to_series().diff().eq(pd.Timedelta(minutes=30))
+    correlations: list[float] = []
+    pair_counts: dict[str, int] = {}
+    for column in ("da", second_column):
+        current = history[column]
+        previous = current.shift(1)
+        valid = consecutive & current.notna() & previous.notna()
+        pair_counts[column] = int(valid.sum())
+        if pair_counts[column] < minimum_pairs:
+            continue
+        spearman = current.loc[valid].corr(previous.loc[valid], method="spearman")
+        if pd.notna(spearman):
+            gaussian = 2.0 * np.sin(np.pi * float(spearman) / 6.0)
+            correlations.append(gaussian)
+
+    if not correlations:
+        logger.warning(
+            "Too few consecutive residual pairs for temporal dependence: %s. "
+            "Using zero persistence.",
+            pair_counts,
+        )
+        return 0.0
+
+    estimate = float(np.median(correlations))
+    clipped = float(
+        np.clip(estimate, -MAX_TEMPORAL_CORRELATION, MAX_TEMPORAL_CORRELATION)
+    )
+    if clipped != estimate:
+        logger.warning(
+            "Clipped temporal correlation from %.3f to %.3f for stability",
+            estimate,
+            clipped,
+        )
+    logger.info(
+        "Temporal residual correlation %.3f estimated from consecutive pairs %s",
+        clipped,
+        pair_counts,
+    )
+    return clipped
+
+
+def _estimate_dependence_parameters(
     cutoff_date: str | pd.Timestamp = "2025-01-01",
     use_spread: bool = False,
     da_model_id: str = "da",
-) -> np.ndarray:
-    """Estimate copula correlation from OOF forecast residuals before cutoff."""
+) -> tuple[np.ndarray, float]:
+    """Estimate contemporaneous and lag-one copula dependence before cutoff."""
     cutoff = ensure_utc_timestamp(cutoff_date, "cutoff_date")
 
     try:
         residuals = _historical_residual_frame(use_spread, da_model_id)
         if residuals is None:
-            logger.warning("OOF residuals are unavailable. Using default correlation.")
-            return _default_correlation_matrix(use_spread)
+            logger.warning("OOF residuals are unavailable. Using default dependence.")
+            return _default_correlation_matrix(use_spread), 0.0
 
         settlement_history_count = int((residuals.index < cutoff).sum())
         history = _residual_history_available_by(residuals, cutoff)
@@ -234,13 +309,13 @@ def _estimate_correlation_matrix(
                 excluded_unpublished,
                 cutoff,
             )
-        if len(history) < 500:
+        if len(history) < MIN_DEPENDENCE_OBSERVATIONS:
             logger.warning(
                 "Only %d residual observations exist before %s. Using defaults.",
                 len(history),
                 cutoff,
             )
-            return _default_correlation_matrix(use_spread)
+            return _default_correlation_matrix(use_spread), 0.0
 
         spearman = history.corr(method="spearman").to_numpy(dtype=float)
         gaussian = 2.0 * np.sin(np.pi * spearman / 6.0)
@@ -250,10 +325,24 @@ def _estimate_correlation_matrix(
             len(history),
             cutoff,
         )
-        return correlation
+        temporal_correlation = _estimate_temporal_correlation_from_history(history)
+        return correlation, temporal_correlation
     except Exception as exc:
-        logger.exception("Correlation estimation failed: %s", exc)
-        return _default_correlation_matrix(use_spread)
+        logger.exception("Dependence estimation failed: %s", exc)
+        return _default_correlation_matrix(use_spread), 0.0
+
+
+def _estimate_correlation_matrix(
+    cutoff_date: str | pd.Timestamp = "2025-01-01",
+    use_spread: bool = False,
+    da_model_id: str = "da",
+) -> np.ndarray:
+    """Compatibility wrapper returning contemporaneous copula correlation."""
+    return _estimate_dependence_parameters(
+        cutoff_date=cutoff_date,
+        use_spread=use_spread,
+        da_model_id=da_model_id,
+    )[0]
 
 
 def _validate_forecast(frame: pd.DataFrame, name: str, horizon: int) -> None:
@@ -304,12 +393,17 @@ def sample_scenarios_multimarket(
     seed: int | None = None,
     corr_matrix: np.ndarray | None = None,
     spread_fc: pd.DataFrame | None = None,
+    temporal_correlation: float = 0.0,
 ) -> dict[str, np.ndarray | int | None]:
-    """Generate Gaussian-copula scenarios with calibrated marginal quantiles."""
+    """Generate temporally persistent copula scenarios with calibrated marginals."""
     if n <= 0:
         raise ValueError(f"n must be positive, got {n}")
     if da_fc.empty:
         raise ValueError("Forecast horizon is empty")
+    if not np.isfinite(temporal_correlation) or not -1.0 < temporal_correlation < 1.0:
+        raise ValueError(
+            "temporal_correlation must be finite and strictly between -1 and 1"
+        )
 
     horizon = len(da_fc)
     for frame, name in (
@@ -346,7 +440,14 @@ def sample_scenarios_multimarket(
 
     rng = np.random.default_rng(seed)
     independent = rng.standard_normal((n, horizon, 4))
-    latent = independent @ cholesky.T
+    innovations = independent @ cholesky.T
+    latent = innovations.copy()
+    innovation_scale = float(np.sqrt(1.0 - temporal_correlation**2))
+    for period in range(1, horizon):
+        latent[:, period, :] = (
+            temporal_correlation * latent[:, period - 1, :]
+            + innovation_scale * innovations[:, period, :]
+        )
 
     window_start = reference_index[0]
     groups = efa_block_groups(window_start, horizon)
@@ -416,7 +517,9 @@ def build_scenarios(horizon: int = 48, seed: int | None = None) -> dict:
     bm = load_latest_forecast("bm").reindex(da.index)
     dc_low = load_latest_forecast("dc_low").reindex(da.index)
     dc_high = load_latest_forecast("dc_high").reindex(da.index)
-    correlation = _estimate_correlation_matrix(cutoff_date=da.index[0])
+    correlation, temporal_correlation = _estimate_dependence_parameters(
+        cutoff_date=realised_data_cutoff_time(da.index[0])
+    )
     return sample_scenarios_multimarket(
         da,
         bm,
@@ -425,4 +528,5 @@ def build_scenarios(horizon: int = 48, seed: int | None = None) -> dict:
         n=N_SCENARIOS,
         seed=seed,
         corr_matrix=correlation,
+        temporal_correlation=temporal_correlation,
     )

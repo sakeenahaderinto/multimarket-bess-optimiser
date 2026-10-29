@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import copy
-from datetime import date, timedelta
 import logging
-from typing import Callable
+from collections.abc import Callable
+from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
@@ -16,7 +16,10 @@ from config import settings
 from excluded_dates import is_excluded
 from market_calendar import realised_data_cutoff_time
 from optimiser.model import build_model
-from optimiser.scenarios import _estimate_correlation_matrix, sample_scenarios_multimarket
+from optimiser.scenarios import (
+    _estimate_dependence_parameters,
+    sample_scenarios_multimarket,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -424,7 +427,7 @@ def run_backtest(
             scenario_seed = _seed_for_date(seed, current_date)
             if scenario_builder is None:
                 cutoff = realised_data_cutoff_time(window_start)
-                correlation = _estimate_correlation_matrix(
+                correlation, temporal_correlation = _estimate_dependence_parameters(
                     cutoff_date=cutoff,
                     use_spread=spread_fc_window is not None,
                     da_model_id=correlation_da_model_id,
@@ -438,6 +441,7 @@ def run_backtest(
                     seed=scenario_seed,
                     corr_matrix=correlation,
                     spread_fc=spread_fc_window,
+                    temporal_correlation=temporal_correlation,
                 )
             else:
                 scenarios = scenario_builder(
