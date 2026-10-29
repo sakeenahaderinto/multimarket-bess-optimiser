@@ -14,6 +14,7 @@ from baselines.scenarios import build_median_scenario, make_naive_scenario_build
 from features.pipeline_da_hourly import upsample_da_forecast
 from forecasting.base import BaseForecaster
 from market_calendar import efa_block_keys
+from optimiser.model import validate_cvar_configuration
 from run_backtest import _load_actual, _load_dc_actual, _load_forecast
 
 logging.basicConfig(
@@ -378,6 +379,15 @@ def main() -> None:
     parser.add_argument("--mean-weight", type=float, default=1.0)
     parser.add_argument("--cvar-alpha", type=float, default=0.90)
     args = parser.parse_args()
+
+    try:
+        validate_cvar_configuration(
+            args.n_scenarios,
+            args.mean_weight,
+            args.cvar_alpha,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
 
     if args.period == "cv":
         start = args.start or "2022-01-01"

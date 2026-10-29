@@ -78,6 +78,8 @@ The full mathematical formulation is in [`experiments/optimisation_model_formula
 
 Under the full-acceptance BM proxy, every physical decision is scenario-independent. With `mean_weight=1.0`, the risk-neutral optimisation is therefore driven by scenario-average prices, and the Gaussian copula does not by itself create operational robustness. Cross-market dependence becomes decision-relevant when a CVaR term is active, or under a properly identified recourse model with real BM acceptance uncertainty. Empirical claims about sampled means and risk-aware objectives should rest on multi-seed results, not a single run.
 
+When CVaR is active, the optimiser requires at least five effective tail scenarios: `(1 - cvar_alpha) × n_scenarios >= 5`. At the default `cvar_alpha=0.90`, use at least 50 scenarios. This is a minimum adequacy guard, not a substitute for scenario-count and multi-seed sensitivity analysis.
+
 ---
 ## Quickstart
 

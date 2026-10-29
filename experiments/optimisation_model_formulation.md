@@ -117,6 +117,17 @@ $$
 
 When $\lambda=1$ and all physical decisions are first-stage the objective depends on scenario-average prices. Copula dependence does not create a distinct recourse policy in that case. It can affect a CVaR objective and finite-sample estimates.
 
+For empirical CVaR, the implementation requires at least five effective tail
+scenarios:
+
+$$
+(1-\alpha)N\ge5.
+$$
+
+At $\alpha=0.90$, this requires at least 50 scenarios. This is a minimum
+adequacy guard; reported risk results still require scenario-count and
+multi-seed sensitivity analysis.
+
 ## 8. State of charge
 
 Initial condition:

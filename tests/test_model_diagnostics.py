@@ -4,7 +4,7 @@ import pytest
 pyo = pytest.importorskip("pyomo.environ")
 from pyomo.opt import TerminationCondition
 
-from optimiser.model import build_model
+from optimiser.model import build_model, validate_cvar_configuration
 
 
 def scenarios(periods=4, scenario_count=1, price=0.0):
@@ -151,3 +151,27 @@ def test_dc_high_capacity_is_deliverable_after_scheduled_charge():
     post_response_soc = ending_soc + dc_high * 0.25 * eta
     assert dc_high > 1e-6
     assert post_response_soc <= 0.9 + 1e-7
+
+
+def test_cvar_rejects_fewer_than_five_effective_tail_scenarios():
+    with pytest.raises(ValueError, match="at least 5 effective tail scenarios"):
+        validate_cvar_configuration(
+            n_scenarios=20,
+            mean_weight=0.7,
+            cvar_alpha=0.90,
+        )
+
+
+def test_cvar_accepts_five_effective_tail_scenarios():
+    validate_cvar_configuration(
+        n_scenarios=50,
+        mean_weight=0.7,
+        cvar_alpha=0.90,
+    )
+
+    model = build_model(
+        battery(),
+        scenarios(scenario_count=50),
+        {**SETTINGS, "mean_weight": 0.7, "cvar_alpha": 0.90},
+    )
+    assert hasattr(model, "shortfall")

@@ -18,6 +18,7 @@ import pyomo.environ as pyo
 from market_calendar import efa_block_groups, is_complete_efa_group
 
 PERIOD_HOURS = 0.5
+MIN_CVAR_TAIL_SCENARIOS = 5
 
 
 def _as_float(settings: dict[str, Any], key: str, default: float) -> float:
@@ -44,6 +45,31 @@ def _validate_battery(battery: dict[str, Any]) -> None:
         raise ValueError("round_trip_efficiency must be in (0, 1]")
     if int(battery["design_cycle_life"]) <= 0:
         raise ValueError("design_cycle_life must be positive")
+
+
+def validate_cvar_configuration(
+    n_scenarios: int,
+    mean_weight: float,
+    cvar_alpha: float,
+) -> None:
+    """Reject CVaR estimates supported by too few empirical tail scenarios."""
+    if n_scenarios <= 0:
+        raise ValueError("At least one scenario is required")
+    if not 0 <= mean_weight <= 1:
+        raise ValueError("mean_weight must be in [0, 1]")
+    if mean_weight == 1.0:
+        return
+    if not 0 < cvar_alpha < 1:
+        raise ValueError("cvar_alpha must be in (0, 1) when CVaR is active")
+
+    effective_tail_scenarios = (1.0 - cvar_alpha) * n_scenarios
+    if effective_tail_scenarios + 1e-12 < MIN_CVAR_TAIL_SCENARIOS:
+        raise ValueError(
+            "CVaR requires at least "
+            f"{MIN_CVAR_TAIL_SCENARIOS} effective tail scenarios; "
+            f"n_scenarios={n_scenarios} and cvar_alpha={cvar_alpha} provide "
+            f"only {effective_tail_scenarios:.3g}"
+        )
 
 
 def build_model(
@@ -117,10 +143,7 @@ def build_model(
         raise ValueError("dc_response_duration_h must be positive")
     if not 0 <= dc_max_fraction <= 1:
         raise ValueError("dc_max_fraction must be in [0, 1]")
-    if not 0 <= mean_weight <= 1:
-        raise ValueError("mean_weight must be in [0, 1]")
-    if mean_weight < 1 and not 0 < cvar_alpha < 1:
-        raise ValueError("cvar_alpha must be in (0, 1) when CVaR is active")
+    validate_cvar_configuration(n_scenarios, mean_weight, cvar_alpha)
     if terminal_mode not in {"initial", "floor", "band"}:
         raise ValueError("terminal_soc_mode must be 'initial', 'floor' or 'band'")
     if terminal_tolerance < 0:

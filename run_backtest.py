@@ -10,6 +10,7 @@ import pandas as pd
 
 from backtest.engine import DEFAULT_OPT_SETTINGS, run_backtest
 from features.pipeline_da_hourly import upsample_da_forecast
+from optimiser.model import validate_cvar_configuration
 
 logging.basicConfig(
     level=logging.INFO,
@@ -166,6 +167,14 @@ def main() -> None:
         parser.error("--n-scenarios must be positive")
     if not 0 <= args.mean_weight <= 1:
         parser.error("--mean-weight must be in [0, 1]")
+    try:
+        validate_cvar_configuration(
+            args.n_scenarios,
+            args.mean_weight,
+            args.cvar_alpha,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
 
     if args.period == "cv":
         start = args.start or "2022-01-01"

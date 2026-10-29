@@ -79,7 +79,8 @@ throughput and equivalent full cycles
 Run at least these sensitivities:
 
 ```text
-scenario counts: 20, 50, 100
+scenario counts: 20, 50, 100 for risk-neutral runs; CVaR runs only where
+                 (1 - alpha) × scenario count >= 5
 at least five random seeds
 risk-neutral versus CVaR
 native-hourly versus original 30-minute DA forecaster

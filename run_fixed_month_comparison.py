@@ -16,6 +16,7 @@ from historical_error_scenarios import (
     build_error_path_pool,
     make_historical_error_scenario_builder,
 )
+from optimiser.model import validate_cvar_configuration
 from run_backtest import _load_actual, _load_bm_actual, _load_dc_actual, _load_forecast
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -183,6 +184,10 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
+    try:
+        validate_cvar_configuration(args.n_scenarios, 0.7, 0.90)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     da_actual = _load_actual("processed/day_ahead_processed.parquet", "value").to_frame("value")
     bm_actual = _load_bm_actual()
