@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from data_integrity import collapse_identical_duplicates
 from market_calendar import (
     last_complete_hour_start_times,
 )
@@ -36,8 +37,7 @@ def create_market_features(
     market_df = pd.DataFrame(index=canonical_index)
     hour_times = last_complete_hour_start_times(canonical_index)
 
-    weather = weather_df.sort_index()
-    weather = weather[~weather.index.duplicated(keep="last")]
+    weather = collapse_identical_duplicates(weather_df, "market weather features")
     wind = weather["wind_speed_10m"]
     wind_now = wind.reindex(hour_times, method="ffill").to_numpy(dtype=float)
     wind_previous = wind.reindex(

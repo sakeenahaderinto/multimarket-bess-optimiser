@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from backtest.engine import DEFAULT_OPT_SETTINGS, run_backtest
+from data_integrity import collapse_identical_duplicates
 from features.pipeline_da_hourly import upsample_da_forecast
 from optimiser.model import validate_cvar_configuration
 
@@ -46,8 +47,11 @@ def _load_actual(glob_pattern: str, value_col: str) -> pd.Series:
         frame[time_column] = pd.to_datetime(frame[time_column], utc=True)
         frames.append(frame.set_index(time_column)[[value_col]])
 
-    combined = pd.concat(frames).sort_index()
-    combined = combined[~combined.index.duplicated(keep="last")]
+    combined = collapse_identical_duplicates(
+        pd.concat(frames),
+        f"actual data matching {glob_pattern}",
+        comparison_columns=[value_col],
+    )
     combined.index = _ensure_utc(combined.index, glob_pattern)
     return combined[value_col]
 
@@ -101,13 +105,14 @@ def _load_forecast(model_id: str, period: str) -> pd.DataFrame:
         raise FileNotFoundError(f"Forecast file not found: {path}")
     frame = pd.read_parquet(path)
     frame.index = _ensure_utc(pd.DatetimeIndex(frame.index), f"{model_id} forecast")
-    frame = frame[~frame.index.duplicated(keep="last")].sort_index()
-
     required = {"q10", "q50", "q90"}
     missing = required - set(frame.columns)
     if missing:
         raise ValueError(f"{path} is missing columns: {sorted(missing)}")
-    return frame[["q10", "q50", "q90"]]
+    return collapse_identical_duplicates(
+        frame[["q10", "q50", "q90"]],
+        f"{model_id} forecast",
+    )
 
 
 def _load_dc_actual(service: str) -> pd.Series:

@@ -5,6 +5,7 @@ import logging
 import pandas as pd
 
 from config import settings
+from data_integrity import collapse_identical_duplicates
 from features.pipeline_da_hourly import build_da_hourly_features
 from forecasting.da_prices_hourly import DAPricesForecasterHourly
 
@@ -46,14 +47,19 @@ def build_and_save_features() -> pd.DataFrame:
     )
 
     da_df["datetime"] = pd.to_datetime(da_df["datetime"], utc=True)
-    da_df = da_df.set_index("datetime").sort_index()
-    da_df = da_df[~da_df.index.duplicated(keep="last")]
+    da_df = collapse_identical_duplicates(
+        da_df.set_index("datetime"),
+        "hourly DA input",
+        comparison_columns=["value"],
+    )
 
     bm_df = _prepare_bm_records(bm_df)
 
     weather_df["date"] = pd.to_datetime(weather_df["date"], utc=True)
-    weather_df = weather_df.set_index("date").sort_index()
-    weather_df = weather_df[~weather_df.index.duplicated(keep="last")]
+    weather_df = collapse_identical_duplicates(
+        weather_df.set_index("date"),
+        "hourly weather input",
+    )
 
     features = build_da_hourly_features(
         da_df_hourly=da_df,

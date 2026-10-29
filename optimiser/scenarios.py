@@ -10,6 +10,7 @@ import pandas as pd
 from scipy.stats import norm
 
 from config import settings
+from data_integrity import collapse_identical_duplicates
 from market_calendar import (
     efa_block_groups,
     ensure_utc_timestamp,
@@ -73,7 +74,7 @@ def _read_forecast_q50(model_id: str) -> pd.Series | None:
         return None
     index = pd.to_datetime(frame.index, utc=True)
     result = pd.Series(frame["q50"].to_numpy(dtype=float), index=index, name=model_id)
-    result = result[~result.index.duplicated(keep="last")].sort_index()
+    result = collapse_identical_duplicates(result, f"{model_id} median forecast")
     if model_id == "da_hourly":
         result = result.resample("30min").ffill(limit=1)
     return result
@@ -507,9 +508,16 @@ def load_latest_forecast(model_id: str) -> pd.DataFrame:
         paths = sorted(directory.glob(f"{model_id}_oof_*.parquet"))
     if not paths:
         raise FileNotFoundError(f"No forecast was found for {model_id}")
-    frame = pd.read_parquet(paths[-1]).sort_index()
+    frame = pd.read_parquet(paths[-1])
     frame.index = pd.to_datetime(frame.index, utc=True)
-    return frame[~frame.index.duplicated(keep="last")]
+    required = ["q10", "q50", "q90"]
+    missing = [column for column in required if column not in frame.columns]
+    if missing:
+        raise ValueError(f"{paths[-1]} is missing forecast columns: {missing}")
+    return collapse_identical_duplicates(
+        frame[required],
+        f"{model_id} forecast",
+    )
 
 
 def build_scenarios(horizon: int = 48, seed: int | None = None) -> dict:

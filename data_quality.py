@@ -7,6 +7,7 @@ import logging
 import pandas as pd
 
 from config import settings
+from data_integrity import collapse_identical_duplicates
 
 logger = logging.getLogger(__name__)
 STUDY_START = "2022-01-01"
@@ -28,8 +29,10 @@ def run_audit() -> tuple[pd.DataFrame, pd.DataFrame]:
     if "datetime" not in frame.columns or "value" not in frame.columns:
         raise ValueError("DA data must contain datetime and value columns")
     frame["datetime"] = pd.to_datetime(frame["datetime"], utc=True)
-    raw = frame.set_index("datetime")["value"].sort_index()
-    raw = raw[~raw.index.duplicated(keep="last")]
+    raw = collapse_identical_duplicates(
+        frame.set_index("datetime")["value"],
+        "DA quality input",
+    )
 
     canonical = pd.date_range(
         start=pd.Timestamp(STUDY_START, tz="UTC"),

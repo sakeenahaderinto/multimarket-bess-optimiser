@@ -7,6 +7,7 @@ import logging
 import pandas as pd
 
 from config import settings
+from data_integrity import collapse_identical_duplicates
 from features.cyclical_time import add_cyclical_time
 from features.lag_features import add_lag_features
 from features.market_features import create_market_features
@@ -22,10 +23,7 @@ DC_FORWARD_FILL_LIMIT = 7
 
 
 def _deduplicate_index(df: pd.DataFrame, name: str) -> pd.DataFrame:
-    if df.index.has_duplicates:
-        logger.warning("%s contains duplicate timestamps. Keeping the last row.", name)
-        df = df[~df.index.duplicated(keep="last")]
-    return df.sort_index()
+    return collapse_identical_duplicates(df, name)  # type: ignore[return-value]
 
 
 def _check_coverage(series: pd.Series, name: str, threshold: float = 0.05) -> None:

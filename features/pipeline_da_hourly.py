@@ -7,6 +7,7 @@ import logging
 import numpy as np
 import pandas as pd
 
+from data_integrity import collapse_identical_duplicates
 from features.point_in_time import build_bm_asof_features
 from market_calendar import last_complete_hour_start_times
 
@@ -118,8 +119,7 @@ def add_weather_features_hourly(df: pd.DataFrame, weather_df: pd.DataFrame) -> p
     if missing:
         raise ValueError(f"Weather data is missing columns: {missing}")
     snapshot_times = last_complete_hour_start_times(df.index)
-    weather = weather_df.sort_index()
-    weather = weather[~weather.index.duplicated(keep="last")]
+    weather = collapse_identical_duplicates(weather_df, "hourly weather features")
     df["wind_speed"] = (
         weather["wind_speed_10m"]
         .reindex(snapshot_times, method="ffill")
@@ -141,8 +141,7 @@ def add_market_features_hourly(
     if "price" not in df.columns:
         raise ValueError("The hourly DA price column is missing")
     snapshot_times = last_complete_hour_start_times(df.index)
-    weather = weather_df.sort_index()
-    weather = weather[~weather.index.duplicated(keep="last")]
+    weather = collapse_identical_duplicates(weather_df, "hourly market weather")
     wind = weather["wind_speed_10m"]
     wind_now = wind.reindex(snapshot_times, method="ffill").to_numpy(dtype=float)
     wind_previous = wind.reindex(
@@ -167,9 +166,10 @@ def build_da_hourly_features(
         end=pd.Timestamp(f"{STUDY_END} 23:00", tz="UTC"),
         freq="1h",
     )
-    da_source = da_df_hourly["value"].sort_index()
-    if da_source.index.has_duplicates:
-        da_source = da_source.groupby(level=0).last()
+    da_source = collapse_identical_duplicates(
+        da_df_hourly["value"],
+        "hourly DA feature input",
+    )
     da_aligned = da_source.reindex(canonical_index)
     bm_records = bm_df.copy()
     if "startTime" not in bm_records.columns:

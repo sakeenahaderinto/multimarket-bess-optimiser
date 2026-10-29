@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from data_integrity import collapse_identical_duplicates
 from market_calendar import last_complete_hour_start_times
 
 
@@ -25,8 +26,7 @@ def add_weather_features(df: pd.DataFrame, weather_df: pd.DataFrame) -> pd.DataF
         "shortwave_radiation",
     ]
     _check_required_columns(weather_df, required, "weather_df")
-    weather = weather_df.sort_index()
-    weather = weather[~weather.index.duplicated(keep="last")]
+    weather = collapse_identical_duplicates(weather_df, "weather features")
     snapshot_times = last_complete_hour_start_times(df.index)
     mapping = {
         "temperature": "temperature_2m",

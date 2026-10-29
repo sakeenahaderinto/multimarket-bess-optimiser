@@ -117,6 +117,11 @@ Expected columns:
 
 `verify_inputs.py` checks these files before a run.
 
+Timestamp-indexed DA, forecast, and weather inputs may contain repeated identical
+observations, which are collapsed. Conflicting values at the same timestamp are rejected
+instead of being selected by file or row order. BM publication revisions and DC services
+use their explicit publication-time and service keys rather than this generic rule.
+
 **3. Run the pipeline, in order**
 
 ```bash
