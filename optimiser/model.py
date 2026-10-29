@@ -401,6 +401,40 @@ def build_model(
         rule=dc_soc_upper_rule,
     )
 
+    # A DC response may be called after the scheduled half-hour dispatch has
+    # changed SoC. Retain the start-of-period checks above and also reserve
+    # enough energy/capacity at the scheduled end-of-period SoC.
+    def dc_soc_lower_end_rule(_model, t, battery, scenario):
+        battery_data = battery_by_id[battery]
+        eta = math.sqrt(float(battery_data["round_trip_efficiency"]))
+        capacity = float(battery_data["capacity_mwh"])
+        return model.soc[t + 1, battery, scenario] >= (
+            soc_min
+            + model.dc_low[t, battery] * response_duration / (eta * capacity)
+        )
+
+    def dc_soc_upper_end_rule(_model, t, battery, scenario):
+        battery_data = battery_by_id[battery]
+        eta = math.sqrt(float(battery_data["round_trip_efficiency"]))
+        capacity = float(battery_data["capacity_mwh"])
+        return model.soc[t + 1, battery, scenario] <= (
+            soc_max
+            - model.dc_high[t, battery] * response_duration * eta / capacity
+        )
+
+    model.dc_soc_lower_end = pyo.Constraint(
+        model.T,
+        model.B,
+        model.S,
+        rule=dc_soc_lower_end_rule,
+    )
+    model.dc_soc_upper_end = pyo.Constraint(
+        model.T,
+        model.B,
+        model.S,
+        rule=dc_soc_upper_end_rule,
+    )
+
     if disable_partial_dc and period_index is not None:
         partial_periods = [
             t

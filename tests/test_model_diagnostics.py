@@ -103,3 +103,51 @@ def test_directional_power_limits():
         )
         assert discharge_direction <= 1.0 + 1e-7
         assert charge_direction <= 1.0 + 1e-7
+
+
+def test_dc_low_energy_is_deliverable_after_scheduled_discharge():
+    values = scenarios(periods=1)
+    values["da"][0, 0] = 100.0
+    values["dc_low"][0, 0] = 500.0
+    low_soc_battery = battery()
+    low_soc_battery[0]["current_soc"] = 0.55
+    settings = {
+        **SETTINGS,
+        "dc_max_fraction": "0.2",
+        "terminal_soc_mode": "floor",
+        "terminal_soc_min": "0.1",
+    }
+
+    model = build_model(low_soc_battery, values, settings)
+    solve(model)
+
+    eta = np.sqrt(low_soc_battery[0]["round_trip_efficiency"])
+    ending_soc = pyo.value(model.soc[1, "test_bat", 0])
+    dc_low = pyo.value(model.dc_low[0, "test_bat"])
+    post_response_soc = ending_soc - dc_low * 0.25 / eta
+    assert dc_low > 1e-6
+    assert post_response_soc >= 0.1 - 1e-7
+
+
+def test_dc_high_capacity_is_deliverable_after_scheduled_charge():
+    values = scenarios(periods=1)
+    values["da"][0, 0] = -100.0
+    values["dc_high"][0, 0] = 500.0
+    mid_soc_battery = battery()
+    mid_soc_battery[0]["current_soc"] = 0.55
+    settings = {
+        **SETTINGS,
+        "dc_max_fraction": "0.2",
+        "terminal_soc_mode": "floor",
+        "terminal_soc_min": "0.1",
+    }
+
+    model = build_model(mid_soc_battery, values, settings)
+    solve(model)
+
+    eta = np.sqrt(mid_soc_battery[0]["round_trip_efficiency"])
+    ending_soc = pyo.value(model.soc[1, "test_bat", 0])
+    dc_high = pyo.value(model.dc_high[0, "test_bat"])
+    post_response_soc = ending_soc + dc_high * 0.25 * eta
+    assert dc_high > 1e-6
+    assert post_response_soc <= 0.9 + 1e-7
