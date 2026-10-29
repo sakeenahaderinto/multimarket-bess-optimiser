@@ -7,7 +7,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from data_integrity import collapse_identical_duplicates
+from data_integrity import collapse_identical_duplicates, validate_quantile_forecast
 from features.point_in_time import build_bm_asof_features
 from market_calendar import last_complete_hour_start_times
 
@@ -214,10 +214,7 @@ def upsample_da_forecast(hourly_fc: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("hourly_fc index must be timezone-aware")
     if hourly_fc.empty:
         return hourly_fc.copy()
-    required = {"q10", "q50", "q90"}
-    missing = required - set(hourly_fc.columns)
-    if missing:
-        raise ValueError(f"hourly_fc is missing forecast columns: {sorted(missing)}")
+    validate_quantile_forecast(hourly_fc, "hourly DA forecast")
     hourly = hourly_fc.sort_index()
     if hourly.index.has_duplicates:
         raise ValueError("hourly_fc contains duplicate timestamps")

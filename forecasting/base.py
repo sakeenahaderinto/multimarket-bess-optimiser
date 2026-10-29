@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from config import settings
+from data_integrity import validate_quantile_forecast
 from market_calendar import (
     aggregate_to_efa_blocks,
     ensure_utc_timestamp,
@@ -469,6 +470,7 @@ class BaseForecaster:
     def save_oof_forecasts(self, forecasts: pd.DataFrame) -> None:
         if forecasts.empty:
             raise RuntimeError(f"No OOF forecasts were generated for {self.model_id}")
+        validate_quantile_forecast(forecasts, f"{self.model_id} OOF forecast")
         directory = settings.data_dir / "forecasts"
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"{self.model_id}_oof_2022_2024.parquet"
@@ -478,6 +480,7 @@ class BaseForecaster:
     def save_oos_forecasts(self, forecasts: pd.DataFrame) -> None:
         if forecasts.empty:
             raise RuntimeError(f"No OOS forecasts were generated for {self.model_id}")
+        validate_quantile_forecast(forecasts, f"{self.model_id} OOS forecast")
         directory = settings.data_dir / "forecasts"
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"{self.model_id}_oos_2025.parquet"

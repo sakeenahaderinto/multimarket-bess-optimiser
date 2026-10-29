@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from backtest.engine import DEFAULT_OPT_SETTINGS, run_backtest
-from data_integrity import collapse_identical_duplicates
+from data_integrity import collapse_identical_duplicates, validate_quantile_forecast
 from features.pipeline_da_hourly import upsample_da_forecast
 from optimiser.model import validate_cvar_configuration
 
@@ -109,10 +109,11 @@ def _load_forecast(model_id: str, period: str) -> pd.DataFrame:
     missing = required - set(frame.columns)
     if missing:
         raise ValueError(f"{path} is missing columns: {sorted(missing)}")
-    return collapse_identical_duplicates(
+    forecast = collapse_identical_duplicates(
         frame[["q10", "q50", "q90"]],
         f"{model_id} forecast",
     )
+    return validate_quantile_forecast(forecast, f"{model_id} forecast")
 
 
 def _load_dc_actual(service: str) -> pd.Series:

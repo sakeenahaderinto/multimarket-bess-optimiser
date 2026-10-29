@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from data_integrity import collapse_identical_duplicates
+from data_integrity import collapse_identical_duplicates, validate_quantile_forecast
 
 
 def _duplicate_index() -> pd.DatetimeIndex:
@@ -59,3 +59,29 @@ def test_conflicting_series_duplicates_are_rejected():
         match=r"actuals contains conflicting duplicate values.*column 'price'",
     ):
         collapse_identical_duplicates(series, "actuals")
+
+
+def test_quantile_forecast_rejects_crossing_with_timestamp_and_values():
+    index = pd.date_range("2025-01-01", periods=2, freq="30min", tz="UTC")
+    forecast = pd.DataFrame(
+        {"q10": [0.0, 3.0], "q50": [1.0, 2.0], "q90": [2.0, 4.0]},
+        index=index,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"crossed quantiles at 2025-01-01 00:30:00\+00:00: q10=3.0, q50=2.0",
+    ):
+        validate_quantile_forecast(forecast, "DA forecast")
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), float("-inf")])
+def test_quantile_forecast_rejects_non_finite_values(invalid: float):
+    index = pd.date_range("2025-01-01", periods=1, freq="30min", tz="UTC")
+    forecast = pd.DataFrame(
+        {"q10": [0.0], "q50": [invalid], "q90": [2.0]},
+        index=index,
+    )
+
+    with pytest.raises(ValueError, match="non-finite q50.*2025-01-01"):
+        validate_quantile_forecast(forecast, "BM forecast")

@@ -4,7 +4,40 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import numpy as np
 import pandas as pd
+
+QUANTILE_COLUMNS = ("q10", "q50", "q90")
+
+
+def validate_quantile_forecast(frame: pd.DataFrame, source: str) -> pd.DataFrame:
+    """Validate that a forecast is finite and ordered at every timestamp."""
+    missing = [column for column in QUANTILE_COLUMNS if column not in frame.columns]
+    if missing:
+        raise ValueError(f"{source} is missing quantile columns: {missing}")
+
+    try:
+        values = frame.loc[:, list(QUANTILE_COLUMNS)].to_numpy(dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{source} quantiles must be numeric") from exc
+
+    non_finite = ~np.isfinite(values)
+    if non_finite.any():
+        row, column = np.argwhere(non_finite)[0]
+        raise ValueError(
+            f"{source} contains a non-finite {QUANTILE_COLUMNS[column]} value "
+            f"at {frame.index[row]}"
+        )
+
+    crossed = (values[:, 0] > values[:, 1]) | (values[:, 1] > values[:, 2])
+    if crossed.any():
+        row = int(np.flatnonzero(crossed)[0])
+        q10, q50, q90 = values[row]
+        raise ValueError(
+            f"{source} contains crossed quantiles at {frame.index[row]}: "
+            f"q10={q10}, q50={q50}, q90={q90}"
+        )
+    return frame
 
 
 def collapse_identical_duplicates(

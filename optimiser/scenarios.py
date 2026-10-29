@@ -10,7 +10,7 @@ import pandas as pd
 from scipy.stats import norm
 
 from config import settings
-from data_integrity import collapse_identical_duplicates
+from data_integrity import collapse_identical_duplicates, validate_quantile_forecast
 from market_calendar import (
     efa_block_groups,
     ensure_utc_timestamp,
@@ -347,17 +347,9 @@ def _estimate_correlation_matrix(
 
 
 def _validate_forecast(frame: pd.DataFrame, name: str, horizon: int) -> None:
-    required = {"q10", "q50", "q90"}
-    missing = required - set(frame.columns)
-    if missing:
-        raise ValueError(f"{name} forecast is missing columns: {sorted(missing)}")
+    validate_quantile_forecast(frame, f"{name} forecast")
     if len(frame) != horizon:
         raise ValueError(f"{name} forecast length is {len(frame)}, expected {horizon}")
-    values = frame[["q10", "q50", "q90"]].to_numpy(dtype=float)
-    if not np.isfinite(values).all():
-        raise ValueError(f"{name} forecast contains non-finite values")
-    if np.any(values[:, 0] > values[:, 1]) or np.any(values[:, 1] > values[:, 2]):
-        raise ValueError(f"{name} forecast contains crossed quantiles")
 
 
 def _block_average(values: np.ndarray, groups: list[tuple[int, int]]) -> np.ndarray:
@@ -514,10 +506,11 @@ def load_latest_forecast(model_id: str) -> pd.DataFrame:
     missing = [column for column in required if column not in frame.columns]
     if missing:
         raise ValueError(f"{paths[-1]} is missing forecast columns: {missing}")
-    return collapse_identical_duplicates(
+    forecast = collapse_identical_duplicates(
         frame[required],
         f"{model_id} forecast",
     )
+    return validate_quantile_forecast(forecast, f"{model_id} forecast")
 
 
 def build_scenarios(horizon: int = 48, seed: int | None = None) -> dict:

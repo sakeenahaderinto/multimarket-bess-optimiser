@@ -5,6 +5,7 @@ import pytest
 import calibrate_spread
 from calibrate_spread import (
     _aligned_calibration_history,
+    apply_scales,
     calibration_history_available_by,
     rolling_calibrate,
 )
@@ -99,3 +100,11 @@ def test_calibration_rejects_publication_before_settlement() -> None:
 
     with pytest.raises(ValueError, match="precedes settlement start"):
         _aligned_calibration_history(forecasts(index), actual, availability)
+
+
+@pytest.mark.parametrize("invalid_scale", [-1.0, float("nan"), float("inf")])
+def test_apply_scales_rejects_invalid_scale(invalid_scale: float) -> None:
+    index = pd.date_range("2024-01-01", periods=2, freq="30min", tz="UTC")
+
+    with pytest.raises(ValueError, match="lower_scale must be finite and non-negative"):
+        apply_scales(forecasts(index), invalid_scale, 1.0)

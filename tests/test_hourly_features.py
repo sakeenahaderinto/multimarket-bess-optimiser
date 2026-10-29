@@ -61,6 +61,17 @@ def test_hourly_forecast_upsampling_exactly_duplicates_each_hour():
         assert pair.nunique().max() == 1
 
 
+def test_hourly_forecast_upsampling_rejects_crossed_quantiles():
+    index = pd.date_range("2025-01-01", periods=1, freq="h", tz="UTC")
+    crossed = pd.DataFrame(
+        {"q10": [20.0], "q50": [10.0], "q90": [30.0]},
+        index=index,
+    )
+
+    with pytest.raises(ValueError, match="crossed quantiles"):
+        upsample_da_forecast(crossed)
+
+
 def test_hourly_entry_point_preserves_bm_publication_vintages():
     frame = pd.DataFrame(
         {

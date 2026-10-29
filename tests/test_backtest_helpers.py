@@ -4,6 +4,7 @@ pytest.importorskip("pyomo.environ")
 
 import pandas as pd
 
+import run_backtest as run_backtest_entry
 from backtest.engine import (
     _normalise_to_30min,
     _require_exact_grid,
@@ -73,3 +74,19 @@ def test_settlement_rejects_infinite_actual_price():
             "battery",
             1,
         )
+
+
+def test_forecast_loader_rejects_crossed_quantiles(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    forecast_directory = tmp_path / "forecasts"
+    forecast_directory.mkdir()
+    index = pd.date_range("2025-01-01", periods=2, freq="30min", tz="UTC")
+    pd.DataFrame(
+        {"q10": [0.0, 3.0], "q50": [1.0, 2.0], "q90": [2.0, 4.0]},
+        index=index,
+    ).to_parquet(forecast_directory / "da_oos_2025.parquet")
+    monkeypatch.setattr(run_backtest_entry, "DATA_DIR", tmp_path)
+
+    with pytest.raises(ValueError, match="da forecast contains crossed quantiles"):
+        run_backtest_entry._load_forecast("da", "oos")

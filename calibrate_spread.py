@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from backtest.engine import _normalise_to_30min
+from data_integrity import validate_quantile_forecast
 from market_calendar import ensure_utc_timestamp, realised_data_cutoff_time
 from run_backtest import _load_actual, _load_bm_actual, _load_forecast
 
@@ -79,12 +80,17 @@ def find_tail_scales(
 
 
 def apply_scales(frame: pd.DataFrame, lower_scale: float, upper_scale: float) -> pd.DataFrame:
+    validate_quantile_forecast(frame, "uncalibrated spread forecast")
+    if not np.isfinite(lower_scale) or lower_scale < 0:
+        raise ValueError("lower_scale must be finite and non-negative")
+    if not np.isfinite(upper_scale) or upper_scale < 0:
+        raise ValueError("upper_scale must be finite and non-negative")
     calibrated = frame.copy()
     lower_width = np.maximum(calibrated["q50"] - calibrated["q10"], 0.0)
     upper_width = np.maximum(calibrated["q90"] - calibrated["q50"], 0.0)
     calibrated["q10"] = calibrated["q50"] - lower_scale * lower_width
     calibrated["q90"] = calibrated["q50"] + upper_scale * upper_width
-    return calibrated
+    return validate_quantile_forecast(calibrated, "calibrated spread forecast")
 
 
 def _aligned_calibration_history(
@@ -97,6 +103,7 @@ def _aligned_calibration_history(
         raise ValueError("Calibration forecasts must use a timezone-aware DatetimeIndex")
     if forecasts.index.has_duplicates:
         raise ValueError("Calibration forecasts contain duplicate timestamps")
+    validate_quantile_forecast(forecasts, "calibration forecast")
 
     frame = pd.concat(
         [

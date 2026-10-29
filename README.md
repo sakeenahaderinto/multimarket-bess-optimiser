@@ -121,6 +121,9 @@ Timestamp-indexed DA, forecast, and weather inputs may contain repeated identica
 observations, which are collapsed. Conflicting values at the same timestamp are rejected
 instead of being selected by file or row order. BM publication revisions and DC services
 use their explicit publication-time and service keys rather than this generic rule.
+Quantile forecast artifacts must also contain finite numeric values satisfying
+`q10 <= q50 <= q90` at every timestamp; invalid distributions are rejected before
+calibration, upsampling, scenario generation, or backtesting.
 
 **3. Run the pipeline, in order**
 
