@@ -14,6 +14,7 @@ REQUIRED = {
         "path": Path("data/processed/bmrs_processed.parquet"),
         "columns": {
             "startTime",
+            "createdDateTime",
             "systemSellPrice",
             "totalAcceptedOfferVolume",
             "netImbalanceVolume",
@@ -96,6 +97,25 @@ def validate_one(name: str, specification: dict) -> dict:
         absent = {"DCL", "DCH"} - services
         if absent:
             raise ValueError(f"dc: required services are missing: {sorted(absent)}")
+
+    if name == "bmrs":
+        publication = pd.to_datetime(
+            frame["createdDateTime"],
+            utc=True,
+            errors="coerce",
+        )
+        if publication.isna().any():
+            raise ValueError(
+                "bmrs: "
+                f"{int(publication.isna().sum())} invalid publication timestamps"
+            )
+        published_before_settlement = publication < timestamps
+        if published_before_settlement.any():
+            first = published_before_settlement[published_before_settlement].index[0]
+            raise ValueError(
+                "bmrs: publication time precedes settlement start "
+                f"at row {first}"
+            )
 
     duplicate_rows = int(timestamps.duplicated(keep=False).sum())
     return {

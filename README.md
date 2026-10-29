@@ -108,7 +108,7 @@ Expected columns:
 
 | File | Columns |
 |---|---|
-| `bmrs_processed.parquet` | `startTime`, `systemSellPrice`, `totalAcceptedOfferVolume`, `netImbalanceVolume` |
+| `bmrs_processed.parquet` | `startTime`, `createdDateTime`, `systemSellPrice`, `totalAcceptedOfferVolume`, `netImbalanceVolume` |
 | `day_ahead_processed.parquet` | `datetime`, `value` |
 | `dc_auction_processed.parquet` | `delivery_start`, `service`, `clearing_price` |
 | `weather_backfill.parquet` | `date`, `temperature_2m`, `shortwave_radiation`, `wind_speed_10m`, `cloud_cover` |

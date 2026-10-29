@@ -16,6 +16,23 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _prepare_bm_records(frame: pd.DataFrame) -> pd.DataFrame:
+    """Parse BM event/publication times without discarding revision vintages."""
+    required = {"startTime", "createdDateTime"}
+    missing = required - set(frame.columns)
+    if missing:
+        raise ValueError(f"BMRS data is missing columns: {sorted(missing)}")
+
+    records = frame.copy()
+    for column in ("startTime", "createdDateTime"):
+        records[column] = pd.to_datetime(records[column], utc=True, errors="coerce")
+    if records[["startTime", "createdDateTime"]].isna().any().any():
+        raise ValueError("BMRS data contains invalid event or publication timestamps")
+    if (records["createdDateTime"] < records["startTime"]).any():
+        raise ValueError("BMRS data contains publication times before settlement start")
+    return records.sort_values(["createdDateTime", "startTime"]).reset_index(drop=True)
+
+
 def build_and_save_features() -> pd.DataFrame:
     bm_df = pd.read_parquet(settings.data_dir / "processed" / "bmrs_processed.parquet")
     da_df = pd.read_parquet(settings.data_dir / "processed" / "day_ahead_processed.parquet")
@@ -32,9 +49,7 @@ def build_and_save_features() -> pd.DataFrame:
     da_df = da_df.set_index("datetime").sort_index()
     da_df = da_df[~da_df.index.duplicated(keep="last")]
 
-    bm_df["startTime"] = pd.to_datetime(bm_df["startTime"], utc=True)
-    bm_df = bm_df.set_index("startTime").sort_index()
-    bm_df = bm_df[~bm_df.index.duplicated(keep="last")]
+    bm_df = _prepare_bm_records(bm_df)
 
     weather_df["date"] = pd.to_datetime(weather_df["date"], utc=True)
     weather_df = weather_df.set_index("date").sort_index()

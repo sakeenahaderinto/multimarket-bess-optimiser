@@ -42,6 +42,31 @@ def _complete_hour_mean(series: pd.Series) -> pd.Series:
     return values.where(counts == 2)
 
 
+def _latest_bm_targets(records: pd.DataFrame) -> pd.DataFrame:
+    """Select the final stored vintage only for realised hourly target fields."""
+    required = {"startTime", "createdDateTime"}
+    missing = required - set(records.columns)
+    if missing:
+        raise ValueError(f"BM data is missing columns: {sorted(missing)}")
+    frame = records.copy()
+    frame["startTime"] = pd.to_datetime(frame["startTime"], utc=True, errors="coerce")
+    frame["createdDateTime"] = pd.to_datetime(
+        frame["createdDateTime"],
+        utc=True,
+        errors="coerce",
+    )
+    if frame[["startTime", "createdDateTime"]].isna().any().any():
+        raise ValueError("BM data contains invalid event or publication timestamps")
+    if (frame["createdDateTime"] < frame["startTime"]).any():
+        raise ValueError("BM data contains publication times before settlement start")
+    return (
+        frame.sort_values(["startTime", "createdDateTime"])
+        .drop_duplicates(subset="startTime", keep="last")
+        .set_index("startTime")
+        .sort_index()
+    )
+
+
 def add_cyclical_time_hourly(df: pd.DataFrame) -> pd.DataFrame:
     _check_hourly_index(df.index)
     hour = df.index.hour
@@ -154,7 +179,7 @@ def build_da_hourly_features(
             columns={bm_records.index.name or "index": "startTime"}
         )
     bm_records["startTime"] = pd.to_datetime(bm_records["startTime"], utc=True)
-    bm_indexed = bm_records.set_index("startTime").sort_index()
+    bm_indexed = _latest_bm_targets(bm_records)
     accepted_offer_volume = _complete_hour_sum(
         bm_indexed["totalAcceptedOfferVolume"]
     ).reindex(canonical_index)
