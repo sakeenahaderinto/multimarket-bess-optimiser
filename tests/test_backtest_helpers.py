@@ -4,7 +4,12 @@ pytest.importorskip("pyomo.environ")
 
 import pandas as pd
 
-from backtest.engine import _normalise_to_30min, _require_exact_grid, _seed_for_date
+from backtest.engine import (
+    _normalise_to_30min,
+    _require_exact_grid,
+    _seed_for_date,
+    settle_revenue,
+)
 
 
 def test_da_normalisation_fills_only_the_matching_second_half_hour():
@@ -36,3 +41,35 @@ def test_daily_seed_is_stable_and_date_specific():
     next_day = _seed_for_date(42, pd.Timestamp("2025-01-02").date())
     assert first == repeat
     assert first != next_day
+
+
+def test_settlement_rejects_negative_degradation_cost():
+    actual = pd.Series([1.0])
+
+    with pytest.raises(ValueError, match="replacement_cost_per_mwh must be non-negative"):
+        settle_revenue(
+            object(),
+            actual,
+            actual,
+            actual,
+            actual,
+            "battery",
+            1,
+            opt_settings={"replacement_cost_per_mwh": -1.0},
+        )
+
+
+def test_settlement_rejects_infinite_actual_price():
+    finite = pd.Series([1.0])
+    infinite = pd.Series([float("inf")])
+
+    with pytest.raises(ValueError, match="da actual contains non-finite values"):
+        settle_revenue(
+            object(),
+            infinite,
+            finite,
+            finite,
+            finite,
+            "battery",
+            1,
+        )

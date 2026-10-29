@@ -27,13 +27,18 @@ For battery $b$:
 - $\eta_b^{RTE}$ is round-trip efficiency.
 - $\eta_b=\sqrt{\eta_b^{RTE}}$ is one-way efficiency.
 - $N_b^{cyc}$ is design cycle life.
-- $C^{rep}$ is replacement cost in pounds per MWh of capacity.
+- $C^{rep}\ge0$ is a finite replacement cost in pounds per MWh of capacity.
 
 The linear degradation coefficient is:
 
 $$
 \kappa_b=\frac{C^{rep}}{2N_b^{cyc}}.
 $$
+
+The implementation requires finite positive capacity, power, efficiency and
+cycle-life parameters, and an initial SoC inside the configured operating
+range. Invalid economic or physical parameters are rejected before model
+construction.
 
 ## 4. Scenario prices
 

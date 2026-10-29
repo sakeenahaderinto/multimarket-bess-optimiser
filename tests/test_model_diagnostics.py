@@ -175,3 +175,45 @@ def test_cvar_accepts_five_effective_tail_scenarios():
         {**SETTINGS, "mean_weight": 0.7, "cvar_alpha": 0.90},
     )
     assert hasattr(model, "shortfall")
+
+
+def test_negative_replacement_cost_cannot_reward_throughput():
+    settings = {**SETTINGS, "replacement_cost_per_mwh": -1.0}
+
+    with pytest.raises(ValueError, match="replacement_cost_per_mwh must be non-negative"):
+        build_model(battery(), scenarios(), settings)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("capacity_mwh", np.nan, "capacity_mwh must be finite"),
+        ("round_trip_efficiency", np.inf, "round_trip_efficiency must be finite"),
+        ("current_soc", 1.1, "current_soc must be in"),
+    ],
+)
+def test_battery_parameters_must_be_finite_and_physical(field, value, message):
+    invalid_battery = battery()
+    invalid_battery[0][field] = value
+
+    with pytest.raises(ValueError, match=message):
+        build_model(invalid_battery, scenarios(), SETTINGS)
+
+
+def test_initial_soc_must_be_inside_configured_operating_bounds():
+    invalid_battery = battery()
+    invalid_battery[0]["current_soc"] = 0.95
+
+    with pytest.raises(ValueError, match="within.*soc_min, soc_max"):
+        build_model(invalid_battery, scenarios(), SETTINGS)
+
+
+def test_terminal_floor_must_be_inside_operating_bounds():
+    settings = {
+        **SETTINGS,
+        "terminal_soc_mode": "floor",
+        "terminal_soc_min": 0.95,
+    }
+
+    with pytest.raises(ValueError, match="terminal_soc_min must be within"):
+        build_model(battery(), scenarios(), settings)

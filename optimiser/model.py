@@ -25,6 +25,30 @@ def _as_float(settings: dict[str, Any], key: str, default: float) -> float:
     return float(settings.get(key, default))
 
 
+def _finite_float(value: Any, name: str) -> float:
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError(f"{name} must be finite")
+    return result
+
+
+def degradation_cost_per_mwh(
+    replacement_cost_per_mwh: Any,
+    design_cycle_life: Any,
+) -> float:
+    """Return the throughput degradation coefficient after validation."""
+    replacement_cost = _finite_float(
+        replacement_cost_per_mwh,
+        "replacement_cost_per_mwh",
+    )
+    cycle_life = _finite_float(design_cycle_life, "design_cycle_life")
+    if replacement_cost < 0:
+        raise ValueError("replacement_cost_per_mwh must be non-negative")
+    if cycle_life <= 0:
+        raise ValueError("design_cycle_life must be positive")
+    return replacement_cost / (2.0 * cycle_life)
+
+
 def _validate_battery(battery: dict[str, Any]) -> None:
     required = {
         "id",
@@ -37,14 +61,22 @@ def _validate_battery(battery: dict[str, Any]) -> None:
     missing = required - set(battery)
     if missing:
         raise ValueError(f"Battery is missing keys: {sorted(missing)}")
-    if float(battery["capacity_mwh"]) <= 0:
+    capacity = _finite_float(battery["capacity_mwh"], "capacity_mwh")
+    power = _finite_float(battery["max_power_mw"], "max_power_mw")
+    initial_soc = _finite_float(battery["current_soc"], "current_soc")
+    efficiency = _finite_float(
+        battery["round_trip_efficiency"],
+        "round_trip_efficiency",
+    )
+    if capacity <= 0:
         raise ValueError("Battery capacity_mwh must be positive")
-    if float(battery["max_power_mw"]) <= 0:
+    if power <= 0:
         raise ValueError("Battery max_power_mw must be positive")
-    if not 0 < float(battery["round_trip_efficiency"]) <= 1:
+    if not 0 <= initial_soc <= 1:
+        raise ValueError("current_soc must be in [0, 1]")
+    if not 0 < efficiency <= 1:
         raise ValueError("round_trip_efficiency must be in (0, 1]")
-    if int(battery["design_cycle_life"]) <= 0:
-        raise ValueError("design_cycle_life must be positive")
+    degradation_cost_per_mwh(0.0, battery["design_cycle_life"])
 
 
 def validate_cvar_configuration(
@@ -137,6 +169,19 @@ def build_model(
     terminal_tolerance = _as_float(settings_dict, "terminal_soc_tolerance", 0.0)
     disable_partial_dc = bool(settings_dict.get("disable_partial_dc_blocks", True))
 
+    for name, value in (
+        ("replacement_cost_per_mwh", replacement_cost),
+        ("dc_response_duration_h", response_duration),
+        ("soc_min", soc_min),
+        ("soc_max", soc_max),
+        ("dc_max_fraction", dc_max_fraction),
+        ("terminal_soc_min", terminal_floor),
+        ("terminal_soc_tolerance", terminal_tolerance),
+    ):
+        if not math.isfinite(value):
+            raise ValueError(f"{name} must be finite")
+    if replacement_cost < 0:
+        raise ValueError("replacement_cost_per_mwh must be non-negative")
     if not 0 <= soc_min < soc_max <= 1:
         raise ValueError("Require 0 <= soc_min < soc_max <= 1")
     if response_duration <= 0:
@@ -148,6 +193,24 @@ def build_model(
         raise ValueError("terminal_soc_mode must be 'initial', 'floor' or 'band'")
     if terminal_tolerance < 0:
         raise ValueError("terminal_soc_tolerance must be non-negative")
+    if terminal_mode == "floor" and not soc_min <= terminal_floor <= soc_max:
+        raise ValueError("terminal_soc_min must be within [soc_min, soc_max]")
+
+    for battery in batteries:
+        initial_soc = float(battery["current_soc"])
+        if not soc_min <= initial_soc <= soc_max:
+            raise ValueError(
+                f"Battery {battery['id']!r} current_soc must be within "
+                "[soc_min, soc_max]"
+            )
+
+    degradation_by_battery = {
+        battery: degradation_cost_per_mwh(
+            replacement_cost,
+            battery_by_id[battery]["design_cycle_life"],
+        )
+        for battery in battery_ids
+    }
 
     model = pyo.ConcreteModel()
     model.T = pyo.RangeSet(0, n_periods - 1)
@@ -214,10 +277,7 @@ def build_model(
                 + model.bm_dispatch[t, battery, scenario]
             )
             * PERIOD_HOURS
-            * (
-                replacement_cost
-                / (2.0 * float(battery_by_id[battery]["design_cycle_life"]))
-            )
+            * degradation_by_battery[battery]
             for t in range(n_periods)
             for battery in battery_ids
         )

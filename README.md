@@ -222,7 +222,7 @@ multimarket-bess-optimiser/
 
 **Weather inputs.** Weather features are lagged realised observations, not archived numerical weather forecasts. A stronger forecasting study would use forecast vintages actually available at each decision time.
 
-**Degradation convention.** Degradation cost uses `replacement_cost / (2 × cycle_life)` applied to both charge and discharge throughput, treating one full cycle as one charge plus one discharge.
+**Degradation convention.** Degradation cost uses `replacement_cost / (2 × cycle_life)` applied to both charge and discharge throughput, treating one full cycle as one charge plus one discharge. Replacement cost must be finite and non-negative, and cycle life must be finite and positive.
 
 ---
 

@@ -15,7 +15,7 @@ from pyomo.opt import TerminationCondition
 from config import settings
 from excluded_dates import is_excluded
 from market_calendar import realised_data_cutoff_time
-from optimiser.model import build_model
+from optimiser.model import build_model, degradation_cost_per_mwh
 from optimiser.scenarios import (
     _estimate_dependence_parameters,
     sample_scenarios_multimarket,
@@ -171,10 +171,12 @@ def settle_revenue(
             raise ValueError(f"{name} actual has {len(values)} rows, expected {n_periods}")
         if values.isna().any():
             raise ValueError(f"{name} actual contains NaN values")
+        if not np.isfinite(values.to_numpy(dtype=float)).all():
+            raise ValueError(f"{name} actual contains non-finite values")
 
     replacement_cost = float(settings_data.get("replacement_cost_per_mwh", 175000.0))
-    cycle_life = int(battery_data.get("design_cycle_life", 4000))
-    degradation_per_mwh = replacement_cost / (2.0 * cycle_life)
+    cycle_life = battery_data.get("design_cycle_life", 4000)
+    degradation_per_mwh = degradation_cost_per_mwh(replacement_cost, cycle_life)
 
     da_revenue = 0.0
     bm_proxy_revenue = 0.0
