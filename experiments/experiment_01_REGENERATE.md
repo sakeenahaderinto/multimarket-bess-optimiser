@@ -51,6 +51,11 @@ historical joint OOF error paths with CVaR
 perfect foresight for a clearly labelled upper-bound diagnostic only
 ```
 
+Apply the delivery-date DC price domain to every comparison: pre-EAC periods
+before 1 November 2023 have a zero lower bound, while post-transition negative
+prices are retained. This includes perfect-foresight and q50-anchored sensitivity
+paths, not only the primary copula, historical-error and median builders.
+
 The primary historical-error-path results must use uncensored residual paths. If
 `--error-cap-pct` is used, label the result as a winsorisation sensitivity and
 report the percentile, market-specific cap values, and number of altered cells.

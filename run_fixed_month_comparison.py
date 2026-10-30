@@ -21,6 +21,7 @@ from historical_error_scenarios import (
     build_error_path_pool,
     make_historical_error_scenario_builder,
 )
+from market_calendar import apply_dc_price_domain
 from optimiser.model import validate_cvar_configuration
 from run_backtest import _load_actual, _load_bm_actual, _load_dc_actual, _load_forecast
 
@@ -75,6 +76,9 @@ def make_perfect_foresight_builder(
 
         paths["dc_low"] = _block_avg_1d(paths["dc_low"], horizon, window_start)
         paths["dc_high"] = _block_avg_1d(paths["dc_high"], horizon, window_start)
+        delivery_index = pd.date_range(window_start, periods=horizon, freq="30min")
+        paths["dc_low"] = apply_dc_price_domain(paths["dc_low"], delivery_index)
+        paths["dc_high"] = apply_dc_price_domain(paths["dc_high"], delivery_index)
         return {
             market: paths[market][np.newaxis, :]
             for market in ("da", "bm", "dc_low", "dc_high")
@@ -119,6 +123,15 @@ def make_q50_anchored_builder(base_builder, anchor_fraction: float):
                 window_start,
             ),
         }
+        delivery_index = pd.date_range(window_start, periods=horizon, freq="30min")
+        medians["dc_low"] = apply_dc_price_domain(
+            medians["dc_low"],
+            delivery_index,
+        )
+        medians["dc_high"] = apply_dc_price_domain(
+            medians["dc_high"],
+            delivery_index,
+        )
         count = int(round(anchor_fraction * np.asarray(scenarios["da"]).shape[0]))
         if anchor_fraction > 0:
             count = max(1, count)

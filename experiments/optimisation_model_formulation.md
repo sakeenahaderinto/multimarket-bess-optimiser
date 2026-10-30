@@ -262,7 +262,8 @@ timestamp would misalign the positional residual path.
 The DC price domain is regime-aware. Delivery periods before 1 November 2023
 retain the predecessor auction's zero lower bound. From the EAC transition onward,
 negative DCL and DCH prices are valid and are not truncated. This rule is applied to
-copula, historical-error, median, and naïve scenario builders.
+copula, historical-error, median, naïve, perfect-foresight, and q50-anchored
+scenario builders.
 
 ## 12. Settlement
 
