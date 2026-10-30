@@ -18,7 +18,7 @@ from optimiser.scenarios import (
     _estimate_dependence_parameters,
     sample_scenarios_multimarket,
 )
-from run_backtest import _load_actual, _load_forecast
+from run_backtest import _load_actual, _load_bm_actual, _load_forecast
 
 
 def main() -> None:
@@ -39,7 +39,7 @@ def main() -> None:
         "da_actual",
         fill_limit=1,
     ).reindex(index)
-    bm_actual = _load_actual("processed/bmrs_processed.parquet", "systemSellPrice").to_frame("value").reindex(index)
+    bm_actual = _load_bm_actual().reindex(index)
 
     da_forecast = (
         upsample_da_forecast(_load_forecast("da_hourly", args.period))

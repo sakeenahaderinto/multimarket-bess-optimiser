@@ -131,6 +131,9 @@ For BM, repeated copies at the same `(startTime, createdDateTime)` composite key
 collapse only when every consumed scientific field agrees; a conflict is rejected
 before latest-vintage target selection, feature construction, dependence estimation,
 or settlement.
+Every baseline and diagnostic entry point loads realised BM values through this
+same latest-vintage boundary; the generic timestamp loader is not valid for
+revisioned BMRS records.
 Quantile forecast artifacts must also contain finite numeric values satisfying
 `q10 <= q50 <= q90` at every timestamp; invalid distributions are rejected before
 calibration, upsampling, scenario generation, or backtesting.

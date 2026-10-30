@@ -20,7 +20,7 @@ from features.pipeline_da_hourly import upsample_da_forecast
 from forecasting.base import BaseForecaster
 from market_calendar import aggregate_to_efa_blocks
 from optimiser.model import validate_cvar_configuration
-from run_backtest import _load_actual, _load_dc_actual, _load_forecast
+from run_backtest import _load_actual, _load_bm_actual, _load_dc_actual, _load_forecast
 
 logging.basicConfig(
     level=logging.INFO,
@@ -167,7 +167,7 @@ def run_all(
 ) -> None:
     seeds = validate_seed_list(seeds)
     da_actual = _load_actual("processed/day_ahead_processed.parquet", "value").to_frame("value")
-    bm_actual = _load_actual("processed/bmrs_processed.parquet", "systemSellPrice").to_frame("value")
+    bm_actual = _load_bm_actual()
     dc_low_raw = _load_dc_actual("DCL")
     dc_high_raw = _load_dc_actual("DCH")
     dc_low_actual = dc_low_raw.to_frame("value")

@@ -28,6 +28,9 @@ key `(startTime, createdDateTime)`. Exact copies may collapse only when all
 fields consumed by that pipeline agree. A conflicting value at one composite
 key is an input error; do not select one by row order before choosing the latest
 vintage for a settlement period.
+Use the shared publication-vintage-aware BM loader for baseline, settlement and
+diagnostic scripts. Do not pass revisioned BMRS data through a generic
+one-observation-per-timestamp loader.
 
 Weather predictors must match the exact last complete hourly timestamp before
 the common D-1 cutoff. Do not forward-fill across a missing weather hour;

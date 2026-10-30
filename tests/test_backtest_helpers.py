@@ -102,6 +102,30 @@ def test_forecast_loader_rejects_crossed_quantiles(
         run_backtest_entry._load_forecast("da", "oos")
 
 
+def test_bm_actual_loader_selects_latest_validated_publication_vintage(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    processed = tmp_path / "processed"
+    processed.mkdir()
+    pd.DataFrame(
+        {
+            "startTime": ["2025-01-01 00:00Z", "2025-01-01 00:00Z"],
+            "createdDateTime": ["2025-01-01 00:30Z", "2025-01-01 02:00Z"],
+            "systemSellPrice": [40.0, 75.0],
+        }
+    ).to_parquet(processed / "bmrs_processed.parquet")
+    monkeypatch.setattr(run_backtest_entry, "DATA_DIR", tmp_path)
+
+    result = run_backtest_entry._load_bm_actual()
+
+    timestamp = pd.Timestamp("2025-01-01 00:00Z")
+    assert result.loc[timestamp, "value"] == 75.0
+    assert result.loc[timestamp, "bm_target_created_time"] == pd.Timestamp(
+        "2025-01-01 02:00Z"
+    )
+
+
 def test_non_strict_data_failure_is_recorded_in_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

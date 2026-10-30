@@ -10,7 +10,7 @@ import pandas as pd
 from backtest.engine import _normalise_to_30min
 from features.pipeline_da_hourly import upsample_da_forecast
 from market_calendar import efa_block_keys
-from run_backtest import _load_actual, _load_forecast
+from run_backtest import _load_actual, _load_bm_actual, _load_forecast
 
 
 def _magnitude_weighted_sign_accuracy(actual: np.ndarray, forecast: np.ndarray) -> float:
@@ -39,7 +39,7 @@ def main() -> None:
 
     da_actual = _load_actual("processed/day_ahead_processed.parquet", "value").to_frame("value")
     da_actual = _normalise_to_30min(da_actual, "da_actual", fill_limit=1)
-    bm_actual = _load_actual("processed/bmrs_processed.parquet", "systemSellPrice").to_frame("value")
+    bm_actual = _load_bm_actual()
 
     da_forecast = (
         upsample_da_forecast(_load_forecast("da_hourly", args.period))
