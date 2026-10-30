@@ -13,6 +13,7 @@ from data_integrity import (
     validate_quantile_forecast,
 )
 from features.point_in_time import build_bm_asof_features
+from features.weather_features import weather_at_exact_hours
 from market_calendar import last_complete_hour_start_times
 
 logger = logging.getLogger(__name__)
@@ -107,17 +108,14 @@ def add_weather_features_hourly(df: pd.DataFrame, weather_df: pd.DataFrame) -> p
     if missing:
         raise ValueError(f"Weather data is missing columns: {missing}")
     snapshot_times = last_complete_hour_start_times(df.index)
-    weather = collapse_identical_duplicates(weather_df, "hourly weather features")
-    df["wind_speed"] = (
-        weather["wind_speed_10m"]
-        .reindex(snapshot_times, method="ffill")
-        .to_numpy(dtype=float)
+    weather = weather_at_exact_hours(
+        weather_df,
+        snapshot_times,
+        list(required),
+        "hourly weather features",
     )
-    df["cloud_cover"] = (
-        weather["cloud_cover"]
-        .reindex(snapshot_times, method="ffill")
-        .to_numpy(dtype=float)
-    )
+    df["wind_speed"] = weather["wind_speed_10m"].to_numpy(dtype=float)
+    df["cloud_cover"] = weather["cloud_cover"].to_numpy(dtype=float)
     return df
 
 
@@ -129,13 +127,18 @@ def add_market_features_hourly(
     if "price" not in df.columns:
         raise ValueError("The hourly DA price column is missing")
     snapshot_times = last_complete_hour_start_times(df.index)
-    weather = collapse_identical_duplicates(weather_df, "hourly market weather")
-    wind = weather["wind_speed_10m"]
-    wind_now = wind.reindex(snapshot_times, method="ffill").to_numpy(dtype=float)
-    wind_previous = wind.reindex(
+    wind_now = weather_at_exact_hours(
+        weather_df,
+        snapshot_times,
+        ["wind_speed_10m"],
+        "hourly market weather",
+    )["wind_speed_10m"].to_numpy(dtype=float)
+    wind_previous = weather_at_exact_hours(
+        weather_df,
         snapshot_times - pd.Timedelta(hours=1),
-        method="ffill",
-    ).to_numpy(dtype=float)
+        ["wind_speed_10m"],
+        "hourly market weather",
+    )["wind_speed_10m"].to_numpy(dtype=float)
     df["wind_change_lag_24"] = wind_now - wind_previous
     snapshot_starts = pd.DatetimeIndex(bm_asof["bm_snapshot_start_time"])
     da_at_snapshot = df["price"].reindex(snapshot_starts).to_numpy(dtype=float)

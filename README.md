@@ -135,6 +135,10 @@ Quantile forecast artifacts must also contain finite numeric values satisfying
 `q10 <= q50 <= q90` at every timestamp; invalid distributions are rejected before
 calibration, upsampling, scenario generation, or backtesting.
 
+Observed-weather predictors use the exact last complete hour before the common
+09:00 UTC D-1 information cutoff. Missing cutoff-hour observations remain missing;
+they are never forward-filled from an older hour and presented as current data.
+
 **3. Run the pipeline, in order**
 
 ```bash
@@ -245,7 +249,7 @@ multimarket-bess-optimiser/
 
 **No same-origin multi-day lookahead.** Earlier versions used a 48-hour lookahead. It was removed because the feature files did not contain genuine same-origin 48-hour forecasts. Each solve covers one 24-hour UTC delivery day.
 
-**Weather inputs.** Weather features are lagged realised observations, not archived numerical weather forecasts. A stronger forecasting study would use forecast vintages actually available at each decision time.
+**Weather inputs.** Weather features use the exact last complete realised observation hour before the D-1 cutoff, without carrying stale values across gaps. They are not archived numerical weather forecasts. A stronger forecasting study would use forecast vintages actually available at each decision time.
 
 **Degradation convention.** Degradation cost uses `replacement_cost / (2 × cycle_life)` applied to both charge and discharge throughput, treating one full cycle as one charge plus one discharge. Replacement cost must be finite and non-negative, and cycle life must be finite and positive.
 

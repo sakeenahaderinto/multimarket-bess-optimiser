@@ -288,4 +288,4 @@ All strategies are compared on the intersection of clean solved dates. A clean d
 
 ## 14. Limitations that must remain in a paper
 
-The BM stream is an SSP proxy rather than BOA settlement. DC activation is not simulated. Weather uses lagged realised data rather than archived forecast vintages. Network constraints, losses, availability failures, transaction costs, imbalance positions and market impact are omitted. The battery is a price taker. Partial edge EFA blocks are conservatively disabled.
+The BM stream is an SSP proxy rather than BOA settlement. DC activation is not simulated. Weather uses the exact last complete realised observation hour before the D-1 cutoff, with gaps left missing rather than forward-filled, but it still lacks archived forecast vintages. Network constraints, losses, availability failures, transaction costs, imbalance positions and market impact are omitted. The battery is a price taker. Partial edge EFA blocks are conservatively disabled.

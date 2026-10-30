@@ -29,6 +29,10 @@ fields consumed by that pipeline agree. A conflicting value at one composite
 key is an input error; do not select one by row order before choosing the latest
 vintage for a settlement period.
 
+Weather predictors must match the exact last complete hourly timestamp before
+the common D-1 cutoff. Do not forward-fill across a missing weather hour;
+retain the missing value so incomplete feature rows are excluded visibly.
+
 ## Required strategies
 
 Use at least the following controlled cases:
