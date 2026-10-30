@@ -62,6 +62,7 @@ number of eligible calendar days
 number of evaluated clean days
 number and reason for excluded days
 number of failed dates for every seed, separated by `failure_stage`
+number of successful seeds for every date in each averaged artifact
 total net revenue
 annualised sample mean revenue
 average daily net revenue
@@ -76,6 +77,13 @@ DC High revenue
 degradation cost
 throughput and equivalent full cycles
 ```
+
+An averaged date is eligible only when every requested seed solved it. The
+averaged artifact must retain the union of attempted dates, with partial or
+missing seed results marked as `failure_stage="seed_aggregation"`. Do not
+average the successful subset for a date, because doing so conditions reported
+revenue on numerical success. Retain the per-seed artifacts for the exact
+underlying failure stages and reasons.
 
 ## Required sensitivity checks
 

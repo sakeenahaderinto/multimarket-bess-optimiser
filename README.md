@@ -148,6 +148,11 @@ uv run run_baselines.py --period cv  --use-hourly-da --n-scenarios 50 --seeds 0 
 uv run run_baselines.py --period oos --use-hourly-da --n-scenarios 50 --seeds 0 1 2 3 4
 ```
 
+Multi-seed artifacts retain every date attempted by any seed. Revenue is
+averaged only when every seed solved the date; otherwise the aggregate row is
+marked as a `seed_aggregation` failure and reports the number of successful
+seed runs. Exact underlying reasons remain in the per-seed artifacts.
+
 **5. Single-strategy backtest**
 
 ```bash
@@ -207,7 +212,7 @@ multimarket-bess-optimiser/
 | `calibrate_spread.py` | Calibrates the direct spread model's predictions. |
 | `run_baselines.py` | Runs the full copula strategy against a deterministic median baseline and two naive lag baselines (previous-day, previous-week) on the same valid dates, across multiple seeds. |
 | `run_backtest.py` | Runs the stochastic optimiser in walk-forward mode for a single period (CV or OOS), settling each day's decisions against realised prices. |
-| `run_fixed_month_comparison.py` | Compares strategies within a fixed calendar month to isolate regime-specific behaviour, such as high-volatility winter periods. |
+| `run_fixed_month_comparison.py` | Compares strategies within a fixed calendar month to isolate regime-specific behaviour, such as high-volatility winter periods. It retains both per-seed and failure-aware averaged artifacts. |
 
 **Diagnostics and experiment scripts**
 

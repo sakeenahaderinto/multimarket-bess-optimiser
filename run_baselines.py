@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from backtest.aggregation import aggregate_seed_results
 from backtest.engine import DEFAULT_OPT_SETTINGS, _normalise_to_30min, run_backtest
 from baselines.scenarios import build_median_scenario, make_naive_scenario_builder
 from features.pipeline_da_hourly import upsample_da_forecast
@@ -98,36 +99,7 @@ def _metrics(
 
 
 def _average_seed_results(frames: list[pd.DataFrame]) -> pd.DataFrame:
-    if not frames:
-        return pd.DataFrame()
-    if len(frames) == 1:
-        result = frames[0].copy()
-        result["net_revenue_seed_std"] = 0.0
-        return result
-
-    solved_sets = [
-        set(frame[~frame["solve_failed"].fillna(True)].index)
-        for frame in frames
-    ]
-    common = solved_sets[0]
-    for values in solved_sets[1:]:
-        common &= values
-    common_index = pd.Index(sorted(common))
-    if common_index.empty:
-        return pd.DataFrame()
-
-    result = frames[0].reindex(common_index).copy()
-    for column in REVENUE_COLUMNS:
-        matrix = np.vstack(
-            [frame.reindex(common_index)[column].to_numpy(dtype=float) for frame in frames]
-        )
-        result[column] = np.mean(matrix, axis=0)
-        if column == "net_revenue":
-            result["net_revenue_seed_std"] = np.std(matrix, axis=0, ddof=1)
-
-    result["solve_failed"] = False
-    result["failure_reason"] = None
-    return result
+    return aggregate_seed_results(frames, REVENUE_COLUMNS)
 
 
 def _filter_clean_timestamps(index: pd.DatetimeIndex, clean_dates: set) -> np.ndarray:
@@ -315,7 +287,7 @@ def run_all(
 
         averaged = _average_seed_results(per_seed)
         if averaged.empty:
-            logger.warning("No common solved output for strategy %s", label)
+            logger.warning("No attempted output for strategy %s", label)
             continue
         averaged.to_parquet(output_directory / f"backtest_{label}.parquet")
         results[label] = averaged

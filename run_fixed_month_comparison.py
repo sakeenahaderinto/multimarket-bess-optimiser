@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from backtest.aggregation import aggregate_seed_results
 from backtest.engine import DEFAULT_OPT_SETTINGS, _normalise_to_30min, run_backtest
 from baselines.scenarios import _block_avg_1d, _col, build_median_scenario
 from features.pipeline_da_hourly import upsample_da_forecast
@@ -126,22 +127,11 @@ def make_q50_anchored_builder(base_builder, anchor_fraction: float):
 
 
 def _average(frames: list[pd.DataFrame]) -> pd.DataFrame:
-    if not frames:
-        return pd.DataFrame()
-    solved_sets = [set(frame[~frame["solve_failed"].fillna(True)].index) for frame in frames]
-    common = solved_sets[0]
-    for values in solved_sets[1:]:
-        common &= values
-    index = pd.Index(sorted(common))
-    if index.empty:
-        return pd.DataFrame()
-    result = frames[0].reindex(index).copy()
-    for column in REVENUE_COLUMNS:
-        matrix = np.vstack([frame.reindex(index)[column].to_numpy(float) for frame in frames])
-        result[column] = matrix.mean(axis=0)
-        result[f"{column}_seed_std"] = matrix.std(axis=0, ddof=1) if len(frames) > 1 else 0.0
-    result["solve_failed"] = False
-    return result
+    return aggregate_seed_results(
+        frames,
+        REVENUE_COLUMNS,
+        std_columns=REVENUE_COLUMNS,
+    )
 
 
 def _metrics(frame: pd.DataFrame, label: str) -> dict:
@@ -282,19 +272,24 @@ def main() -> None:
             }
         )
         strategy_seeds = [args.seeds[0]] if deterministic else args.seeds
-        frames = [
-            run_backtest(
+        frames = []
+        for seed in strategy_seeds:
+            frame = run_backtest(
                 **shared,
                 scenario_builder=builder,
                 seed=seed,
                 opt_settings=settings_data,
             )
-            for seed in strategy_seeds
-        ]
-        frames = [frame for frame in frames if not frame.empty]
+            if frame.empty:
+                continue
+            frame.to_parquet(
+                output_directory / f"backtest_{label}_seed{seed}.parquet"
+            )
+            frames.append(frame)
         averaged = _average(frames)
         if averaged.empty:
             continue
+        averaged.to_parquet(output_directory / f"backtest_{label}.parquet")
         outputs[label] = averaged
 
     common = None
@@ -308,7 +303,6 @@ def main() -> None:
     rows = []
     for label, frame in outputs.items():
         clean = frame[frame.index.isin(common)]
-        clean.to_parquet(output_directory / f"backtest_{label}.parquet")
         rows.append(_metrics(clean, label))
 
     comparison = pd.DataFrame(rows).set_index("strategy")
