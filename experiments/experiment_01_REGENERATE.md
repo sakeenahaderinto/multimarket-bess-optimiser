@@ -70,7 +70,7 @@ The DC LightGBM fits and early-stopping evaluations must use inverse EFA-block-s
 row weights, normalized to mean one, so each auction has equal total influence despite
 DST or missing-row differences.
 
-For the direct spread model also report sign accuracy and magnitude-weighted sign accuracy at period, EFA-block and daily levels. Use every aligned observation for the period metric, but only exact complete local-time EFA blocks and exact 48-period UTC days for the aggregated metrics. Exclude partial and internally gapped intervals rather than treating them as complete observations.
+For the direct spread model also report sign accuracy and magnitude-weighted sign accuracy at period, EFA-block and daily levels. Use every aligned observation for the period metric, but only exact complete local-time EFA blocks and exact 48-period UTC days for the aggregated metrics. Exclude partial and internally gapped intervals rather than treating them as complete observations. For the daily volatility breakdown, report fewer than four ordered groups when tied empirical cut points make four quartiles indistinguishable; if all daily volatilities are tied, report one tied group.
 
 ## Required economic metrics
 

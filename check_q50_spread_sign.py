@@ -42,6 +42,38 @@ def _complete_interval_spreads(
     return block, daily
 
 
+def _volatility_groups(volatility: pd.Series) -> pd.Series:
+    """Return ordered, tie-safe empirical volatility groups."""
+    if volatility.empty:
+        raise ValueError("No complete UTC days are available for volatility grouping")
+    values = pd.to_numeric(volatility, errors="coerce")
+    if not np.isfinite(values.to_numpy(dtype=float)).all():
+        raise ValueError("Daily spread volatility contains non-finite values")
+
+    if values.nunique() == 1:
+        labels = ["All days tied"]
+        assigned = pd.Series(labels[0], index=values.index)
+    else:
+        codes = pd.qcut(values, 4, labels=False, duplicates="drop")
+        group_count = int(codes.max()) + 1
+        labels_by_count = {
+            2: ["Q1-Q2 calm", "Q3-Q4 volatile"],
+            3: ["Q1 calm", "Q2-Q3", "Q4 volatile"],
+            4: ["Q1 calm", "Q2", "Q3", "Q4 volatile"],
+        }
+        labels = labels_by_count.get(
+            group_count,
+            [f"Group {number + 1}" for number in range(group_count)],
+        )
+        assigned = codes.astype(int).map(dict(enumerate(labels)))
+
+    return pd.Series(
+        pd.Categorical(assigned, categories=labels, ordered=True),
+        index=values.index,
+        name="volatility_quartile",
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--period", choices=["cv", "oos"], default="cv")
@@ -87,12 +119,7 @@ def main() -> None:
         daily["forecast"].to_numpy(float),
     )
     daily["sign_match"] = np.sign(daily["actual"]) == np.sign(daily["forecast"])
-    daily["volatility_quartile"] = pd.qcut(
-        daily["actual_volatility"],
-        4,
-        labels=["Q1 calm", "Q2", "Q3", "Q4 volatile"],
-        duplicates="drop",
-    )
+    daily["volatility_quartile"] = _volatility_groups(daily["actual_volatility"])
 
     print(f"Period-level magnitude-weighted sign accuracy: {period_score * 100:.2f}%")
     print(f"EFA-block magnitude-weighted sign accuracy: {block_score * 100:.2f}%")

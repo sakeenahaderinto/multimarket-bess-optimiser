@@ -245,6 +245,9 @@ retained while partial or gapped blocks are excluded.
 The BM-minus-DA spread-sign diagnostic applies the same exact-grid rule to its
 EFA-block summaries and requires all 48 half-hours for each UTC daily summary.
 Its period-level metric continues to use every aligned half-hour observation.
+The volatility-conditioned daily breakdown uses up to four ordered empirical
+groups. Tied quantile boundaries collapse to fewer groups rather than assigning
+arbitrary ranks or failing; completely tied daily volatilities form one group.
 
 The alternative historical-error method samples complete joint OOF residual
 days. Pool admission requires the exact 48-period UTC grid in every market;
