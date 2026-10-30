@@ -6,6 +6,8 @@ from forecasting import base
 from forecasting.base import BaseForecaster
 from forecasting.bm_da_spread import BMDASpreadForecaster
 from forecasting.bm_price import BMPriceForecaster
+from forecasting.dc_tender import DCHighForecaster, DCLowForecaster
+from market_calendar import efa_block_keys
 
 
 class SmallForecaster(BaseForecaster):
@@ -43,6 +45,34 @@ def test_inner_validation_is_chronological_and_disjoint() -> None:
     assert inner_validation.index.equals(history.index[5:])
     assert inner_train.index.max() < inner_validation.index.min()
     assert inner_train.index.intersection(inner_validation.index).empty
+
+
+@pytest.mark.parametrize("forecaster", [DCLowForecaster(), DCHighForecaster()])
+def test_dc_inner_validation_keeps_efa_blocks_indivisible(forecaster) -> None:
+    forecaster.INNER_VAL_WINDOW = 5
+    forecaster.MIN_INNER_TRAIN_ROWS = 3
+    history = frame(pd.date_range("2024-01-01", periods=30, freq="30min", tz="UTC"))
+
+    split = forecaster._split_inner_validation(history)
+
+    assert split is not None
+    inner_train, inner_validation = split
+    assert len(inner_validation) >= 5
+    assert not set(efa_block_keys(inner_train.index)).intersection(
+        efa_block_keys(inner_validation.index)
+    )
+
+
+def test_dc_outer_validation_rejects_shared_efa_block() -> None:
+    forecaster = DCLowForecaster()
+    index = pd.date_range("2024-01-01 07:00", periods=8, freq="30min", tz="UTC")
+
+    with pytest.raises(ValueError, match="share validation group"):
+        forecaster._require_disjoint_validation_groups(
+            index[:4],
+            index[4:],
+            "outer training and validation",
+        )
 
 
 def test_inner_validation_requires_enough_fit_and_tuning_rows() -> None:

@@ -210,11 +210,52 @@ class BaseForecaster:
         if len(train_slice) < min_inner_train_rows + inner_val_rows:
             return None
 
-        inner_train = train_slice.iloc[:-inner_val_rows]
-        inner_validation = train_slice.iloc[-inner_val_rows:]
+        split_at = len(train_slice) - inner_val_rows
+        boundary_group = self._validation_group_label(train_slice.index[split_at])
+        if boundary_group is not None:
+            while (
+                split_at > 0
+                and self._validation_group_label(train_slice.index[split_at - 1])
+                == boundary_group
+            ):
+                split_at -= 1
+            if split_at < min_inner_train_rows:
+                return None
+
+        inner_train = train_slice.iloc[:split_at]
+        inner_validation = train_slice.iloc[split_at:]
         if inner_train.index.max() >= inner_validation.index.min():
             raise ValueError("Inner training and validation timestamps must be disjoint")
+        self._require_disjoint_validation_groups(
+            inner_train.index,
+            inner_validation.index,
+            "inner training and validation",
+        )
         return inner_train, inner_validation
+
+    def _validation_group_label(
+        self,
+        timestamp: pd.Timestamp,
+    ) -> object | None:
+        """Return an indivisible target group, or ``None`` for row-level targets."""
+        del timestamp
+        return None
+
+    def _require_disjoint_validation_groups(
+        self,
+        training_index: pd.DatetimeIndex,
+        validation_index: pd.DatetimeIndex,
+        context: str,
+    ) -> None:
+        if training_index.empty or validation_index.empty:
+            return
+        training_group = self._validation_group_label(training_index[-1])
+        validation_group = self._validation_group_label(validation_index[0])
+        if training_group is not None and training_group == validation_group:
+            raise ValueError(
+                f"{context} share validation group {training_group!r}; "
+                "grouped outcomes must remain indivisible"
+            )
 
     def _training_rows_available_by(
         self,
@@ -347,6 +388,11 @@ class BaseForecaster:
                 raise ValueError(
                     "Pre-origin training timestamps overlap the outer validation window"
                 )
+            self._require_disjoint_validation_groups(
+                train_slice.index,
+                validation_slice.index,
+                "outer training and validation",
+            )
 
             x_inner_train = inner_train_slice[self.feature_cols]
             y_inner_train = inner_train_slice[self.target_col]
