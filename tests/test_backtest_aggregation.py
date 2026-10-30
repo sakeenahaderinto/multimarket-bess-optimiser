@@ -2,13 +2,34 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from backtest.aggregation import aggregate_seed_results, shared_clean_dates
+from backtest.aggregation import (
+    aggregate_seed_results,
+    shared_clean_dates,
+    validate_seed_list,
+)
 
 REVENUE_COLUMNS = ["net_revenue", "gross_revenue"]
 
 
 def _frame(rows: list[dict]) -> pd.DataFrame:
     return pd.DataFrame(rows).set_index("date")
+
+
+def test_seed_validation_accepts_only_nonempty_unique_integer_ids():
+    assert validate_seed_list([np.int64(2), 7, 11]) == [2, 7, 11]
+
+    with pytest.raises(ValueError, match="At least one random seed"):
+        validate_seed_list([])
+    with pytest.raises(ValueError, match=r"duplicates: \[2\]"):
+        validate_seed_list([2, 3, 2])
+    with pytest.raises(ValueError, match="must be non-negative"):
+        validate_seed_list([2, -1])
+
+
+@pytest.mark.parametrize("invalid", [[True], [1.5], ["2"]])
+def test_seed_validation_rejects_non_integer_ids(invalid):
+    with pytest.raises(ValueError, match="must be an integer"):
+        validate_seed_list(invalid)
 
 
 def test_single_seed_aggregation_preserves_exact_failure_details():

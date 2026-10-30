@@ -9,7 +9,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from backtest.aggregation import aggregate_seed_results, shared_clean_dates
+from backtest.aggregation import (
+    aggregate_seed_results,
+    shared_clean_dates,
+    validate_seed_list,
+)
 from backtest.engine import DEFAULT_OPT_SETTINGS, _normalise_to_30min, run_backtest
 from baselines.scenarios import _block_avg_1d, _col, build_median_scenario
 from features.pipeline_da_hourly import upsample_da_forecast
@@ -175,6 +179,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     try:
+        args.seeds = validate_seed_list(args.seeds)
         validate_cvar_configuration(args.n_scenarios, 0.7, 0.90)
     except ValueError as exc:
         parser.error(str(exc))
@@ -281,7 +286,10 @@ def main() -> None:
                 opt_settings=settings_data,
             )
             if frame.empty:
-                continue
+                raise RuntimeError(
+                    f"Strategy {label!r}, seed {seed} returned no dated results; "
+                    "refusing to continue with fewer runs"
+                )
             frame.to_parquet(
                 output_directory / f"backtest_{label}_seed{seed}.parquet"
             )

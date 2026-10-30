@@ -97,13 +97,17 @@ Run at least these sensitivities:
 ```text
 scenario counts: 20, 50, 100 for risk-neutral runs; CVaR runs only where
                  (1 - alpha) × scenario count >= 5
-at least five random seeds
+at least five distinct non-negative random seeds
 risk-neutral versus CVaR
 native-hourly versus original 30-minute DA forecaster
 1 MW / 1 MWh versus at least one longer-duration battery
 with and without direct spread forecasts
 uncalibrated versus leakage-safe calibrated spread intervals
 ```
+
+Do not count repeated seed IDs as independent replications. If any requested
+seed returns no dated result rows, fail the experiment instead of silently
+continuing with a smaller replication set.
 
 ## Interpretation rules
 

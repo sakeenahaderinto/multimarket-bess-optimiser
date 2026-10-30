@@ -10,6 +10,32 @@ import pandas as pd
 QUALITY_EXCLUSION_COLUMNS = ("da_missing", "da_imputed", "state_reset")
 
 
+def validate_seed_list(seeds: Sequence[int]) -> list[int]:
+    """Return normalized, unique seed IDs suitable for independent reruns."""
+    if not seeds:
+        raise ValueError("At least one random seed is required")
+
+    normalized: list[int] = []
+    for position, seed in enumerate(seeds):
+        if isinstance(seed, (bool, np.bool_)) or not isinstance(seed, (int, np.integer)):
+            raise ValueError(
+                f"Seed at position {position} must be an integer, got {seed!r}"
+            )
+        normalized_seed = int(seed)
+        if normalized_seed < 0:
+            raise ValueError(
+                f"Seed at position {position} must be non-negative, got {seed!r}"
+            )
+        normalized.append(normalized_seed)
+
+    duplicates = sorted(
+        seed for seed in set(normalized) if normalized.count(seed) > 1
+    )
+    if duplicates:
+        raise ValueError(f"Random seeds must be unique; duplicates: {duplicates}")
+    return normalized
+
+
 def clean_result_dates(frame: pd.DataFrame) -> set:
     """Return solved dates without known data-quality or continuity flags."""
     if "solve_failed" not in frame.columns:

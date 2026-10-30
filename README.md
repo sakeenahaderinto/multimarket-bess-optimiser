@@ -151,7 +151,9 @@ uv run run_baselines.py --period oos --use-hourly-da --n-scenarios 50 --seeds 0 
 Multi-seed artifacts retain every date attempted by any seed. Revenue is
 averaged only when every seed solved the date; otherwise the aggregate row is
 marked as a `seed_aggregation` failure and reports the number of successful
-seed runs. Exact underlying reasons remain in the per-seed artifacts.
+seed runs. Seed IDs must be distinct non-negative integers, and every requested
+run must produce a dated artifact. Exact underlying reasons remain in the
+per-seed artifacts.
 
 **5. Single-strategy backtest**
 

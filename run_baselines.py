@@ -9,7 +9,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from backtest.aggregation import aggregate_seed_results, shared_clean_dates
+from backtest.aggregation import (
+    aggregate_seed_results,
+    shared_clean_dates,
+    validate_seed_list,
+)
 from backtest.engine import DEFAULT_OPT_SETTINGS, _normalise_to_30min, run_backtest
 from baselines.scenarios import build_median_scenario, make_naive_scenario_builder
 from features.pipeline_da_hourly import upsample_da_forecast
@@ -163,6 +167,7 @@ def run_all(
     mean_weight: float,
     cvar_alpha: float,
 ) -> None:
+    seeds = validate_seed_list(seeds)
     da_actual = _load_actual("processed/day_ahead_processed.parquet", "value").to_frame("value")
     bm_actual = _load_actual("processed/bmrs_processed.parquet", "systemSellPrice").to_frame("value")
     dc_low_raw = _load_dc_actual("DCL")
@@ -258,7 +263,10 @@ def run_all(
                 scenario_builder=builder,
             )
             if frame.empty:
-                continue
+                raise RuntimeError(
+                    f"Strategy {label!r}, seed {strategy_seed} returned no dated "
+                    "results; refusing to continue with fewer runs"
+                )
             total_failures += int(frame["solve_failed"].fillna(True).sum())
             frame.to_parquet(
                 output_directory / f"backtest_{label}_seed{strategy_seed}.parquet"
@@ -333,6 +341,7 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
+        args.seeds = validate_seed_list(args.seeds)
         validate_cvar_configuration(
             args.n_scenarios,
             args.mean_weight,
