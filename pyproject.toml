@@ -12,6 +12,7 @@ dependencies = [
   "pyarrow",
   "pydantic-settings",
   "pyomo",
+  "scikit-learn>=1.9.1",
   "scipy",
 ]
 
