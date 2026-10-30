@@ -7,12 +7,60 @@ from market_calendar import (
     apply_dc_price_domain,
     efa_block_bounds_utc,
     efa_block_groups,
+    expand_efa_block_values,
     is_complete_efa_group,
     last_complete_half_hour_start_times,
     last_complete_hour_start_times,
     n2ex_gate_times,
     realised_data_cutoff_times,
 )
+
+
+def test_efa_expansion_uses_ten_period_autumn_clock_change_block():
+    start = pd.Timestamp("2025-10-25 22:00", tz="UTC")
+    values = pd.Series([7.5], index=pd.DatetimeIndex([start]))
+
+    result = expand_efa_block_values(values)
+
+    assert len(result) == 10
+    assert result.index[0] == start
+    assert result.index[-1] == pd.Timestamp("2025-10-26 02:30", tz="UTC")
+    assert (result == 7.5).all()
+
+
+def test_efa_expansion_uses_six_period_spring_clock_change_block():
+    start = pd.Timestamp("2025-03-29 23:00", tz="UTC")
+    values = pd.Series([4.5], index=pd.DatetimeIndex([start]))
+
+    result = expand_efa_block_values(values)
+
+    assert len(result) == 6
+    assert result.index[0] == start
+    assert result.index[-1] == pd.Timestamp("2025-03-30 01:30", tz="UTC")
+    assert (result == 4.5).all()
+
+
+def test_efa_expansion_does_not_fill_an_unobserved_block():
+    first_start = pd.Timestamp("2025-01-01 03:00", tz="UTC")
+    third_start = pd.Timestamp("2025-01-01 11:00", tz="UTC")
+    values = pd.Series(
+        [10.0, 30.0],
+        index=pd.DatetimeIndex([first_start, third_start]),
+    )
+
+    result = expand_efa_block_values(values)
+
+    missing_block = pd.date_range("2025-01-01 07:00", periods=8, freq="30min", tz="UTC")
+    assert result.index.intersection(missing_block).empty
+    assert len(result) == 16
+
+
+def test_efa_expansion_rejects_conflicting_values_within_a_block():
+    index = pd.date_range("2025-01-01 03:00", periods=2, freq="30min", tz="UTC")
+    values = pd.Series([10.0, 11.0], index=index)
+
+    with np.testing.assert_raises_regex(ValueError, "conflicting values"):
+        expand_efa_block_values(values)
 
 
 def test_complete_utc_day_aggregation_excludes_incomplete_day():

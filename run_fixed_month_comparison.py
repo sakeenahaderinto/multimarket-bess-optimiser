@@ -189,8 +189,8 @@ def main() -> None:
     dc_low = _load_dc_actual("DCL").to_frame("value")
     dc_high = _load_dc_actual("DCH").to_frame("value")
     da_actual_30 = _normalise_to_30min(da_actual, "da_actual", fill_limit=1)
-    dc_low_30 = _normalise_to_30min(dc_low, "dc_low_actual", fill_limit=7)
-    dc_high_30 = _normalise_to_30min(dc_high, "dc_high_actual", fill_limit=7)
+    dc_low_30 = _normalise_to_30min(dc_low, "dc_low_actual")
+    dc_high_30 = _normalise_to_30min(dc_high, "dc_high_actual")
 
     da_forecast = (
         upsample_da_forecast(_load_forecast("da_hourly", args.period))

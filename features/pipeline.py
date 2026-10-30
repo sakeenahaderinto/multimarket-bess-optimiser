@@ -14,12 +14,12 @@ from features.market_features import create_market_features
 from features.point_in_time import build_bm_asof_features
 from features.rolling_stats import add_rolling_features
 from features.weather_features import add_weather_features
+from market_calendar import expand_efa_block_values
 
 logger = logging.getLogger(__name__)
 STUDY_START = "2022-01-01"
 STUDY_END = "2025-12-31"
 DA_FORWARD_FILL_LIMIT = 1
-DC_FORWARD_FILL_LIMIT = 7
 
 
 def _deduplicate_index(df: pd.DataFrame, name: str) -> pd.DataFrame:
@@ -50,7 +50,9 @@ def _dc_service_series(dc_df: pd.DataFrame, service: str) -> pd.Series:
                 "Resolve duplicate auction rows before feature construction."
             )
         series = series.groupby(level=0).last()
-    return series.sort_index()
+    expanded = expand_efa_block_values(series.sort_index())
+    assert isinstance(expanded, pd.Series)
+    return expanded
 
 
 def _latest_bm_targets(bm_records: pd.DataFrame) -> pd.DataFrame:
@@ -111,18 +113,8 @@ def build_features() -> pd.DataFrame:
     accepted_offer_volume_aligned = bm_df["totalAcceptedOfferVolume"].reindex(
         canonical_index
     )
-    dcl_aligned = (
-        _dc_service_series(dc_df, "DCL")
-        .resample("30min")
-        .ffill(limit=DC_FORWARD_FILL_LIMIT)
-        .reindex(canonical_index)
-    )
-    dch_aligned = (
-        _dc_service_series(dc_df, "DCH")
-        .resample("30min")
-        .ffill(limit=DC_FORWARD_FILL_LIMIT)
-        .reindex(canonical_index)
-    )
+    dcl_aligned = _dc_service_series(dc_df, "DCL").reindex(canonical_index)
+    dch_aligned = _dc_service_series(dc_df, "DCH").reindex(canonical_index)
 
     _check_coverage(da_aligned, "DA price")
     _check_coverage(bm_price_aligned, "BM system price")

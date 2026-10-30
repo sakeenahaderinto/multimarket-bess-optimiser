@@ -39,6 +39,22 @@ def test_da_normalisation_fills_only_the_matching_second_half_hour():
     assert pd.isna(output.loc["2025-01-01 02:30", "value"])
 
 
+def test_dc_normalisation_expands_exact_efa_block_without_spilling():
+    index = pd.DatetimeIndex(
+        [
+            pd.Timestamp("2025-01-01 03:00", tz="UTC"),
+            pd.Timestamp("2025-01-01 11:00", tz="UTC"),
+        ]
+    )
+    frame = pd.DataFrame({"value": [10.0, 30.0]}, index=index)
+
+    output = _normalise_to_30min(frame, "dc_low_actual")
+
+    assert output.loc["2025-01-01 03:00":"2025-01-01 06:30", "value"].eq(10.0).all()
+    assert output.loc["2025-01-01 11:00":"2025-01-01 14:30", "value"].eq(30.0).all()
+    assert pd.Timestamp("2025-01-01 07:00", tz="UTC") not in output.index
+
+
 def test_exact_grid_rejects_missing_value():
     index = pd.date_range("2025-01-01", periods=3, freq="30min", tz="UTC")
     frame = pd.DataFrame({"value": [1.0, None, 3.0]}, index=index)

@@ -32,12 +32,10 @@ def main() -> None:
     dc_low = _normalise_to_30min(
         _load_dc_actual("DCL").to_frame("value"),
         "dc_low_actual",
-        fill_limit=7,
     )
     dc_high = _normalise_to_30min(
         _load_dc_actual("DCH").to_frame("value"),
         "dc_high_actual",
-        fill_limit=7,
     )
 
     da_forecast = (

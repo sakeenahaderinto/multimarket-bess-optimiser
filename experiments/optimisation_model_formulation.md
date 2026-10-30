@@ -219,6 +219,11 @@ $$
 
 DC reservations are constant within every local-time EFA block. EFA block starts are 23:00, 03:00, 07:00, 11:00, 15:00 and 19:00 in Europe/London time.
 
+Observed DC clearing prices are expanded to half-hour resolution only within
+their exact local-time block boundaries. This produces six periods across the
+spring clock change and ten across the autumn clock change. An absent auction
+remains absent rather than inheriting a price through a fixed-length forward fill.
+
 A midnight UTC 24-hour horizon usually contains partial EFA blocks at its edges. The publication configuration fixes DC Low and DC High to zero in those incomplete blocks. This is conservative. A future extension should use forecasts generated at one common information origin and extend the optimisation far enough to cover complete final blocks.
 
 ## 11. Scenario generation

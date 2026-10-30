@@ -66,6 +66,9 @@ For DC Low and DC High report the same metrics on complete EFA blocks. Do not co
 Define completeness from the block's exact Europe/London boundaries, not from
 an eight-row rule: valid clock-change auctions can contain six or ten UTC
 half-hours. Exclude partial or internally gapped blocks.
+Expand each observed DC clearing price only over its own exact local-time EFA
+block. Do not use a fixed seven-row forward fill: it truncates the ten-period
+autumn clock-change block and can leak a preceding price into a missing auction.
 The DC LightGBM fits and early-stopping evaluations must use inverse EFA-block-size
 row weights, normalized to mean one, so each auction has equal total influence despite
 DST or missing-row differences.

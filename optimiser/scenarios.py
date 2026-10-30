@@ -19,6 +19,7 @@ from market_calendar import (
     apply_dc_price_domain,
     efa_block_groups,
     ensure_utc_timestamp,
+    expand_efa_block_values,
     realised_data_cutoff_time,
 )
 
@@ -105,7 +106,9 @@ def _dc_actual(service: str) -> pd.Series:
         if (unique_counts > 1).any():
             raise ValueError(f"Conflicting duplicate {service} clearing prices")
         series = series.groupby(level=0).last()
-    return series.resample("30min").ffill(limit=7)
+    expanded = expand_efa_block_values(series)
+    assert isinstance(expanded, pd.Series)
+    return expanded
 
 
 @lru_cache(maxsize=4)

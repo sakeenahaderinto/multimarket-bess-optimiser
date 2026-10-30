@@ -212,6 +212,69 @@ def aggregate_to_efa_blocks(
     return result.sort_index()
 
 
+def expand_efa_block_values(
+    values: pd.Series | pd.DataFrame,
+) -> pd.Series | pd.DataFrame:
+    """Expand block-start values over their exact local-time EFA intervals.
+
+    A represented block is expanded only when its exact start timestamp is
+    present. Repeated rows within a block are accepted only when every column
+    is constant, preventing a malformed input from being silently overwritten.
+    """
+    if values.empty:
+        return values.copy()
+    ordered = values.sort_index().copy()
+    ordered.index = ensure_utc_index(ordered.index)
+    if ordered.index.has_duplicates:
+        raise ValueError("EFA block values contain duplicate timestamps")
+
+    expanded: list[pd.Series | pd.DataFrame] = []
+    for key, group in ordered.groupby(efa_block_keys(ordered.index), sort=True):
+        expected_start, expected_end = efa_block_bounds_utc(key)
+        if expected_start not in group.index:
+            continue
+        if isinstance(group, pd.Series):
+            if group.nunique(dropna=False) > 1:
+                raise ValueError(f"EFA block starting {expected_start} has conflicting values")
+            block = pd.Series(
+                group.loc[expected_start],
+                index=pd.date_range(
+                    expected_start,
+                    expected_end,
+                    freq=PERIOD,
+                    inclusive="left",
+                ),
+                name=group.name,
+            )
+        else:
+            conflicts = group.nunique(dropna=False).gt(1)
+            if conflicts.any():
+                column = conflicts[conflicts].index[0]
+                raise ValueError(
+                    f"EFA block starting {expected_start} has conflicting values "
+                    f"for column {column!r}"
+                )
+            block_index = pd.date_range(
+                expected_start,
+                expected_end,
+                freq=PERIOD,
+                inclusive="left",
+            )
+            start_values = group.loc[expected_start]
+            block = pd.DataFrame(
+                [start_values.to_dict()] * len(block_index),
+                index=block_index,
+                columns=group.columns,
+            )
+        expanded.append(block)
+
+    if not expanded:
+        return ordered.iloc[0:0]
+    result = pd.concat(expanded).sort_index()
+    result.index.name = ordered.index.name
+    return result
+
+
 def aggregate_to_complete_utc_days(
     values: pd.Series | pd.DataFrame,
     how: str = "mean",

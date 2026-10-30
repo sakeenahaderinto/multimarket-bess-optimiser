@@ -14,7 +14,7 @@ from pyomo.opt import TerminationCondition
 
 from config import settings
 from excluded_dates import is_excluded
-from market_calendar import realised_data_cutoff_time
+from market_calendar import expand_efa_block_values, realised_data_cutoff_time
 from optimiser.model import build_model, degradation_cost_per_mwh
 from optimiser.scenarios import (
     _estimate_dependence_parameters,
@@ -95,12 +95,15 @@ def _normalise_to_30min(
     if frame.empty:
         return frame
 
+    lowered = name.lower()
+    if "dc" in lowered:
+        expanded = expand_efa_block_values(frame)
+        assert isinstance(expanded, pd.DataFrame)
+        return expanded
+
     if fill_limit is None:
-        lowered = name.lower()
         if "da" in lowered or "day_ahead" in lowered:
             fill_limit = 1
-        elif "dc" in lowered:
-            fill_limit = 7
 
     inferred = pd.infer_freq(frame.index)
     if inferred in ("30min", "30T"):
@@ -342,8 +345,8 @@ def run_backtest(
 
     da_actual_30 = _normalise_to_30min(da_actual_utc, "da_actual", fill_limit=1)
     bm_actual_30 = bm_actual_utc.asfreq("30min")
-    dcl_actual_30 = _normalise_to_30min(dcl_actual_utc, "dc_low_actual", fill_limit=7)
-    dch_actual_30 = _normalise_to_30min(dch_actual_utc, "dc_high_actual", fill_limit=7)
+    dcl_actual_30 = _normalise_to_30min(dcl_actual_utc, "dc_low_actual")
+    dch_actual_30 = _normalise_to_30min(dch_actual_utc, "dc_high_actual")
 
     all_frames = [
         da_actual_30,

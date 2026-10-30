@@ -174,8 +174,8 @@ def run_all(
     dc_high_actual = dc_high_raw.to_frame("value")
 
     da_actual_30 = _normalise_to_30min(da_actual, "da_actual", fill_limit=1)
-    dc_low_30 = _normalise_to_30min(dc_low_actual, "dc_low_actual", fill_limit=7)
-    dc_high_30 = _normalise_to_30min(dc_high_actual, "dc_high_actual", fill_limit=7)
+    dc_low_30 = _normalise_to_30min(dc_low_actual, "dc_low_actual")
+    dc_high_30 = _normalise_to_30min(dc_high_actual, "dc_high_actual")
 
     if use_hourly_da:
         da_forecast = upsample_da_forecast(_load_forecast("da_hourly", period))

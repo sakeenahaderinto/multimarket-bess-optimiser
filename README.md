@@ -248,7 +248,7 @@ multimarket-bess-optimiser/
 
 **Training data coverage.** Models are trained on 2022–2024. DC auction data before 2022 has incomplete market coverage as the service was still rolling out, so 2022 is the study start. The CV backtest (2022–2024) uses out-of-fold predictions to avoid look-ahead bias. The OOS backtest (2025) evaluates unseen data, but regime changes in 2025 may degrade forecast accuracy.
 
-**DC price resolution.** DC prices clear per 4-hour local-time EFA block, not per 30-minute period. Block prices are forward-filled to 30 minutes for consistency with the optimiser, so DC forecast accuracy is evaluated once per exact complete block. DST-short and DST-long blocks are retained according to their real UTC bounds; partial or gapped blocks are excluded. Day-ahead prices are expanded from hourly to 30 minutes with a single fill, and longer source gaps remain missing.
+**DC price resolution.** DC prices clear per 4-hour local-time EFA block, not per 30-minute period. Each observed clearing price is expanded only across that block's exact Europe/London boundaries for consistency with the optimiser, so six-period spring and ten-period autumn clock-change blocks are represented correctly and a missing auction is never filled from its predecessor. DC forecast accuracy is evaluated once per exact complete block; partial or gapped blocks are excluded. Day-ahead prices are expanded from hourly to 30 minutes with a single fill, and longer source gaps remain missing.
 
 **No same-origin multi-day lookahead.** Earlier versions used a 48-hour lookahead. It was removed because the feature files did not contain genuine same-origin 48-hour forecasts. Each solve covers one 24-hour UTC delivery day.
 
