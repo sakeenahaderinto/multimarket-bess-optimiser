@@ -1,7 +1,12 @@
 import pandas as pd
 import pytest
 
-from data_integrity import collapse_identical_duplicates, validate_quantile_forecast
+from data_integrity import (
+    collapse_bm_vintage_duplicates,
+    collapse_identical_duplicates,
+    select_latest_bm_vintages,
+    validate_quantile_forecast,
+)
 
 
 def _duplicate_index() -> pd.DatetimeIndex:
@@ -59,6 +64,65 @@ def test_conflicting_series_duplicates_are_rejected():
         match=r"actuals contains conflicting duplicate values.*column 'price'",
     ):
         collapse_identical_duplicates(series, "actuals")
+
+
+def test_identical_bm_composite_key_duplicates_collapse_before_latest_selection():
+    records = pd.DataFrame(
+        {
+            "startTime": [
+                "2025-01-01 00:00Z",
+                "2025-01-01 00:00Z",
+                "2025-01-01 00:00Z",
+            ],
+            "createdDateTime": [
+                "2025-01-01 00:30Z",
+                "2025-01-01 00:30Z",
+                "2025-01-01 01:00Z",
+            ],
+            "systemSellPrice": [40.0, 40.0, 55.0],
+            "source_file": ["a", "b", "c"],
+        }
+    )
+
+    collapsed = collapse_bm_vintage_duplicates(
+        records,
+        "BM input",
+        comparison_columns=["systemSellPrice"],
+    )
+    latest = select_latest_bm_vintages(
+        records,
+        "BM input",
+        comparison_columns=["systemSellPrice"],
+    )
+
+    assert len(collapsed) == 2
+    assert collapsed.iloc[0]["source_file"] == "a"
+    assert latest.iloc[0]["systemSellPrice"] == 55.0
+    assert latest.iloc[0]["createdDateTime"] == pd.Timestamp("2025-01-01 01:00Z")
+
+
+def test_conflicting_bm_composite_key_duplicate_is_rejected():
+    records = pd.DataFrame(
+        {
+            "startTime": ["2025-01-01 00:00Z", "2025-01-01 00:00Z"],
+            "createdDateTime": ["2025-01-01 01:00Z", "2025-01-01 01:00Z"],
+            "systemSellPrice": [55.0, 65.0],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"conflicting duplicate BM vintage.*settlement 2025-01-01 00:00:00"
+            r"\+00:00.*publication 2025-01-01 01:00:00\+00:00"
+            r".*column 'systemSellPrice'"
+        ),
+    ):
+        select_latest_bm_vintages(
+            records,
+            "BM input",
+            comparison_columns=["systemSellPrice"],
+        )
 
 
 def test_quantile_forecast_rejects_crossing_with_timestamp_and_values():

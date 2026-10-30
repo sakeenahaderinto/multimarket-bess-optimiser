@@ -7,7 +7,7 @@ import logging
 import pandas as pd
 
 from config import settings
-from data_integrity import collapse_identical_duplicates
+from data_integrity import collapse_identical_duplicates, select_latest_bm_vintages
 from features.cyclical_time import add_cyclical_time
 from features.lag_features import add_lag_features
 from features.market_features import create_market_features
@@ -55,16 +55,14 @@ def _dc_service_series(dc_df: pd.DataFrame, service: str) -> pd.Series:
 
 def _latest_bm_targets(bm_records: pd.DataFrame) -> pd.DataFrame:
     """Return the latest published BM target vintage for each settlement period."""
-    required = {"startTime", "createdDateTime", "systemSellPrice"}
-    missing = required - set(bm_records.columns)
-    if missing:
-        raise ValueError(f"BMRS target data is missing columns: {sorted(missing)}")
-
-    targets = bm_records.sort_values(["startTime", "createdDateTime"]).drop_duplicates(
-        subset="startTime",
-        keep="last",
+    comparison_columns = ["systemSellPrice"]
+    if "totalAcceptedOfferVolume" in bm_records.columns:
+        comparison_columns.append("totalAcceptedOfferVolume")
+    return select_latest_bm_vintages(
+        bm_records,
+        "BMRS target data",
+        comparison_columns=comparison_columns,
     )
-    return targets.set_index("startTime").sort_index()
 
 
 def build_features() -> pd.DataFrame:

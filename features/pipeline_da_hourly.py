@@ -7,7 +7,11 @@ import logging
 import numpy as np
 import pandas as pd
 
-from data_integrity import collapse_identical_duplicates, validate_quantile_forecast
+from data_integrity import (
+    collapse_identical_duplicates,
+    select_latest_bm_vintages,
+    validate_quantile_forecast,
+)
 from features.point_in_time import build_bm_asof_features
 from market_calendar import last_complete_hour_start_times
 
@@ -45,26 +49,10 @@ def _complete_hour_mean(series: pd.Series) -> pd.Series:
 
 def _latest_bm_targets(records: pd.DataFrame) -> pd.DataFrame:
     """Select the final stored vintage only for realised hourly target fields."""
-    required = {"startTime", "createdDateTime"}
-    missing = required - set(records.columns)
-    if missing:
-        raise ValueError(f"BM data is missing columns: {sorted(missing)}")
-    frame = records.copy()
-    frame["startTime"] = pd.to_datetime(frame["startTime"], utc=True, errors="coerce")
-    frame["createdDateTime"] = pd.to_datetime(
-        frame["createdDateTime"],
-        utc=True,
-        errors="coerce",
-    )
-    if frame[["startTime", "createdDateTime"]].isna().any().any():
-        raise ValueError("BM data contains invalid event or publication timestamps")
-    if (frame["createdDateTime"] < frame["startTime"]).any():
-        raise ValueError("BM data contains publication times before settlement start")
-    return (
-        frame.sort_values(["startTime", "createdDateTime"])
-        .drop_duplicates(subset="startTime", keep="last")
-        .set_index("startTime")
-        .sort_index()
+    return select_latest_bm_vintages(
+        records,
+        "BM data",
+        comparison_columns=["systemSellPrice", "totalAcceptedOfferVolume"],
     )
 
 

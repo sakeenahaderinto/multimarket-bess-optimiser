@@ -10,7 +10,11 @@ import pandas as pd
 from scipy.stats import norm
 
 from config import settings
-from data_integrity import collapse_identical_duplicates, validate_quantile_forecast
+from data_integrity import (
+    collapse_identical_duplicates,
+    select_latest_bm_vintages,
+    validate_quantile_forecast,
+)
 from market_calendar import (
     apply_dc_price_domain,
     efa_block_groups,
@@ -134,33 +138,11 @@ def _historical_residual_frame(
     ).resample("30min").ffill(limit=1)
 
     bm_frame = pd.read_parquet(bm_path)
-    required_bm_columns = {"startTime", "createdDateTime", "systemSellPrice"}
-    missing_bm_columns = required_bm_columns - set(bm_frame.columns)
-    if missing_bm_columns:
-        raise ValueError(
-            "BM actuals are missing publication metadata: "
-            f"{sorted(missing_bm_columns)}"
-        )
-    bm_frame["startTime"] = pd.to_datetime(
-        bm_frame["startTime"],
-        utc=True,
-        errors="coerce",
+    bm_latest = select_latest_bm_vintages(
+        bm_frame,
+        "Dependence-estimation BM actuals",
+        comparison_columns=["systemSellPrice"],
     )
-    bm_frame["createdDateTime"] = pd.to_datetime(
-        bm_frame["createdDateTime"],
-        utc=True,
-        errors="coerce",
-    )
-    if bm_frame[["startTime", "createdDateTime"]].isna().any().any():
-        raise ValueError("BM actuals contain invalid settlement or publication timestamps")
-    bm_latest = (
-        bm_frame.sort_values(["startTime", "createdDateTime"])
-        .drop_duplicates(subset="startTime", keep="last")
-        .set_index("startTime")
-        .sort_index()
-    )
-    if (bm_latest["createdDateTime"] < bm_latest.index).any():
-        raise ValueError("BM actuals contain publication times before settlement start")
     bm_actual = bm_latest["systemSellPrice"]
     bm_target_created_time = bm_latest["createdDateTime"]
 

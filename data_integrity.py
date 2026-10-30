@@ -8,6 +8,65 @@ import numpy as np
 import pandas as pd
 
 QUANTILE_COLUMNS = ("q10", "q50", "q90")
+BM_VINTAGE_KEY = ("startTime", "createdDateTime")
+
+
+def collapse_bm_vintage_duplicates(
+    records: pd.DataFrame,
+    source: str,
+    comparison_columns: Sequence[str],
+) -> pd.DataFrame:
+    """Collapse identical BM composite-key copies and reject conflicts."""
+    required = {*BM_VINTAGE_KEY, *comparison_columns}
+    missing = required - set(records.columns)
+    if missing:
+        raise ValueError(f"{source} is missing columns: {sorted(missing)}")
+
+    frame = records.copy()
+    for column in BM_VINTAGE_KEY:
+        frame[column] = pd.to_datetime(frame[column], utc=True, errors="coerce")
+    if frame[list(BM_VINTAGE_KEY)].isna().any().any():
+        raise ValueError(f"{source} contains invalid settlement or publication timestamps")
+    if (frame["createdDateTime"] < frame["startTime"]).any():
+        raise ValueError(f"{source} contains publication times before settlement start")
+
+    duplicated = frame.duplicated(subset=list(BM_VINTAGE_KEY), keep=False)
+    if duplicated.any():
+        duplicate_rows = frame.loc[
+            duplicated,
+            [*BM_VINTAGE_KEY, *comparison_columns],
+        ]
+        counts = duplicate_rows.groupby(
+            list(BM_VINTAGE_KEY),
+            sort=False,
+        )[list(comparison_columns)].nunique(dropna=False)
+        conflicts = counts.gt(1)
+        if conflicts.to_numpy().any():
+            row, column = np.argwhere(conflicts.to_numpy())[0]
+            settlement, publication = conflicts.index[row]
+            field = conflicts.columns[column]
+            raise ValueError(
+                f"{source} contains conflicting duplicate BM vintage at "
+                f"settlement {settlement}, publication {publication}, "
+                f"column {field!r}"
+            )
+        frame = frame.drop_duplicates(subset=list(BM_VINTAGE_KEY), keep="first")
+
+    return frame.sort_values(list(BM_VINTAGE_KEY)).reset_index(drop=True)
+
+
+def select_latest_bm_vintages(
+    records: pd.DataFrame,
+    source: str,
+    comparison_columns: Sequence[str],
+) -> pd.DataFrame:
+    """Return the latest validated BM vintage for each settlement period."""
+    frame = collapse_bm_vintage_duplicates(records, source, comparison_columns)
+    return (
+        frame.drop_duplicates(subset="startTime", keep="last")
+        .set_index("startTime")
+        .sort_index()
+    )
 
 
 def validate_quantile_forecast(frame: pd.DataFrame, source: str) -> pd.DataFrame:

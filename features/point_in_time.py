@@ -19,6 +19,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from data_integrity import collapse_bm_vintage_duplicates
 from market_calendar import realised_data_cutoff_times
 
 BM_VALUE_COLUMNS = (
@@ -51,37 +52,11 @@ def _normalise_bm_records(bm_df: pd.DataFrame) -> pd.DataFrame:
             f"Missing columns: {sorted(missing)}"
         )
 
-    frame["startTime"] = pd.to_datetime(frame["startTime"], utc=True, errors="coerce")
-    frame["createdDateTime"] = pd.to_datetime(
-        frame["createdDateTime"],
-        utc=True,
-        errors="coerce",
+    frame = collapse_bm_vintage_duplicates(
+        frame,
+        "Point-in-time BM features",
+        comparison_columns=BM_VALUE_COLUMNS,
     )
-    if frame[["startTime", "createdDateTime"]].isna().any().any():
-        raise ValueError("BM records contain invalid startTime or createdDateTime values")
-    if (frame["createdDateTime"] < frame["startTime"]).any():
-        raise ValueError("BM records contain publication times before settlement start")
-
-    duplicate_versions = frame.duplicated(
-        subset=["startTime", "createdDateTime"],
-        keep=False,
-    )
-    if duplicate_versions.any():
-        duplicate_frame = frame.loc[
-            duplicate_versions,
-            ["startTime", "createdDateTime", *BM_VALUE_COLUMNS],
-        ]
-        conflicts = duplicate_frame.groupby(
-            ["startTime", "createdDateTime"],
-            sort=False,
-        )[list(BM_VALUE_COLUMNS)].nunique(dropna=False)
-        if (conflicts > 1).any().any():
-            raise ValueError("BM records contain conflicting values for one publication vintage")
-        frame = frame.drop_duplicates(
-            subset=["startTime", "createdDateTime"],
-            keep="last",
-        )
-
     return frame.sort_values(["createdDateTime", "startTime"]).reset_index(drop=True)
 
 

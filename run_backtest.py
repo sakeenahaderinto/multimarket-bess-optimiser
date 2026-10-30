@@ -9,7 +9,11 @@ from pathlib import Path
 import pandas as pd
 
 from backtest.engine import DEFAULT_OPT_SETTINGS, run_backtest
-from data_integrity import collapse_identical_duplicates, validate_quantile_forecast
+from data_integrity import (
+    collapse_identical_duplicates,
+    select_latest_bm_vintages,
+    validate_quantile_forecast,
+)
 from features.pipeline_da_hourly import upsample_da_forecast
 from optimiser.model import validate_cvar_configuration
 
@@ -63,27 +67,11 @@ def _load_bm_actual() -> pd.DataFrame:
         raise FileNotFoundError(f"BM actual file not found: {path}")
 
     frame = pd.read_parquet(path)
-    required = {"startTime", "createdDateTime", "systemSellPrice"}
-    missing = required - set(frame.columns)
-    if missing:
-        raise ValueError(f"{path} is missing columns: {sorted(missing)}")
-    frame["startTime"] = pd.to_datetime(frame["startTime"], utc=True, errors="coerce")
-    frame["createdDateTime"] = pd.to_datetime(
-        frame["createdDateTime"],
-        utc=True,
-        errors="coerce",
+    latest = select_latest_bm_vintages(
+        frame,
+        "BM actuals",
+        comparison_columns=["systemSellPrice"],
     )
-    if frame[["startTime", "createdDateTime"]].isna().any().any():
-        raise ValueError("BM actuals contain invalid settlement or publication timestamps")
-
-    latest = (
-        frame.sort_values(["startTime", "createdDateTime"])
-        .drop_duplicates(subset="startTime", keep="last")
-        .set_index("startTime")
-        .sort_index()
-    )
-    if (latest["createdDateTime"] < latest.index).any():
-        raise ValueError("BM actuals contain publication times before settlement start")
     latest.index = _ensure_utc(latest.index, "BM actual")
     return latest[["systemSellPrice", "createdDateTime"]].rename(
         columns={

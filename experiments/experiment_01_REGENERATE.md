@@ -23,6 +23,12 @@ Terminal SoC mode:
 DC partial-edge-block rule:
 ```
 
+Before training or backtesting, audit BM records on the composite publication
+key `(startTime, createdDateTime)`. Exact copies may collapse only when all
+fields consumed by that pipeline agree. A conflicting value at one composite
+key is an input error; do not select one by row order before choosing the latest
+vintage for a settlement period.
+
 ## Required strategies
 
 Use at least the following controlled cases:
