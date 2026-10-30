@@ -9,7 +9,7 @@ import pandas as pd
 
 from backtest.engine import _normalise_to_30min
 from features.pipeline_da_hourly import upsample_da_forecast
-from market_calendar import efa_block_keys
+from market_calendar import aggregate_to_complete_utc_days, aggregate_to_efa_blocks
 from run_backtest import _load_actual, _load_bm_actual, _load_forecast
 
 
@@ -28,6 +28,18 @@ def _aligned_spreads(da_actual, bm_actual, da_forecast, bm_forecast, spread_fore
         else bm_forecast["q50"] - da_forecast["q50"]
     )
     return pd.concat([actual.rename("actual"), predicted.rename("forecast")], axis=1).dropna()
+
+
+def _complete_interval_spreads(
+    aligned: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Aggregate aligned spreads on complete EFA blocks and UTC days."""
+    block = aggregate_to_efa_blocks(aligned, complete_only=True)
+    daily = aggregate_to_complete_utc_days(aligned)
+    daily["actual_volatility"] = (
+        aligned["actual"].groupby(aligned.index.normalize()).std().reindex(daily.index)
+    )
+    return block, daily
 
 
 def main() -> None:
@@ -64,21 +76,17 @@ def main() -> None:
         aligned["forecast"].to_numpy(float),
     )
 
-    block = aligned.copy()
-    block["block_key"] = efa_block_keys(block.index).to_numpy()
-    block = block.groupby("block_key")[["actual", "forecast"]].mean()
+    block, daily = _complete_interval_spreads(aligned)
     block_score = _magnitude_weighted_sign_accuracy(
         block["actual"].to_numpy(float),
         block["forecast"].to_numpy(float),
     )
 
-    daily = aligned.groupby(aligned.index.date)[["actual", "forecast"]].mean()
     daily_score = _magnitude_weighted_sign_accuracy(
         daily["actual"].to_numpy(float),
         daily["forecast"].to_numpy(float),
     )
     daily["sign_match"] = np.sign(daily["actual"]) == np.sign(daily["forecast"])
-    daily["actual_volatility"] = aligned["actual"].groupby(aligned.index.date).std()
     daily["volatility_quartile"] = pd.qcut(
         daily["actual_volatility"],
         4,

@@ -70,7 +70,7 @@ The DC LightGBM fits and early-stopping evaluations must use inverse EFA-block-s
 row weights, normalized to mean one, so each auction has equal total influence despite
 DST or missing-row differences.
 
-For the direct spread model also report sign accuracy and magnitude-weighted sign accuracy at period, EFA-block and daily levels.
+For the direct spread model also report sign accuracy and magnitude-weighted sign accuracy at period, EFA-block and daily levels. Use every aligned observation for the period metric, but only exact complete local-time EFA blocks and exact 48-period UTC days for the aggregated metrics. Exclude partial and internally gapped intervals rather than treating them as complete observations.
 
 ## Required economic metrics
 

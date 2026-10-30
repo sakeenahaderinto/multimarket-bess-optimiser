@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from market_calendar import (
+    aggregate_to_complete_utc_days,
     aggregate_to_efa_blocks,
     apply_dc_price_domain,
     efa_block_bounds_utc,
@@ -12,6 +13,18 @@ from market_calendar import (
     n2ex_gate_times,
     realised_data_cutoff_times,
 )
+
+
+def test_complete_utc_day_aggregation_excludes_incomplete_day():
+    complete = pd.date_range("2025-01-01", periods=48, freq="30min", tz="UTC")
+    incomplete = pd.date_range("2025-01-02", periods=47, freq="30min", tz="UTC")
+    index = complete.append(incomplete)
+    values = pd.Series(np.ones(len(index)), index=index)
+
+    result = aggregate_to_complete_utc_days(values)
+
+    assert result.index.tolist() == [pd.Timestamp("2025-01-01", tz="UTC")]
+    assert result.iloc[0] == 1.0
 
 
 def test_dc_price_domain_is_regime_aware():

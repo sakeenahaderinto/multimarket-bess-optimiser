@@ -210,3 +210,33 @@ def aggregate_to_efa_blocks(
     block_starts = [efa_block_bounds_utc(key)[0] for key in result.index]
     result.index = pd.DatetimeIndex(block_starts, name="efa_block_start")
     return result.sort_index()
+
+
+def aggregate_to_complete_utc_days(
+    values: pd.Series | pd.DataFrame,
+    how: str = "mean",
+) -> pd.Series | pd.DataFrame:
+    """Aggregate only exact 48-period UTC days."""
+    if values.empty:
+        return values.copy()
+    ordered = values.sort_index()
+    utc_index = ensure_utc_index(ordered.index)
+    ordered.index = utc_index
+    day_keys = utc_index.normalize()
+    grouped = ordered.groupby(day_keys, sort=True)
+
+    complete_days: list[pd.Timestamp] = []
+    for day, group in grouped:
+        expected = pd.date_range(day, periods=48, freq=PERIOD)
+        if group.index.equals(expected):
+            complete_days.append(day)
+
+    if how == "mean":
+        result = grouped.mean()
+    elif how == "sum":
+        result = grouped.sum(min_count=1)
+    else:
+        raise ValueError("how must be 'mean' or 'sum'")
+    result = result.loc[result.index.isin(complete_days)]
+    result.index = pd.DatetimeIndex(result.index, name="utc_date")
+    return result.sort_index()

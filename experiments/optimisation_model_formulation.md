@@ -242,6 +242,10 @@ Completeness is checked against the block's UTC start, end and half-hour grid,
 so six-period spring-transition and ten-period autumn-transition auctions are
 retained while partial or gapped blocks are excluded.
 
+The BM-minus-DA spread-sign diagnostic applies the same exact-grid rule to its
+EFA-block summaries and requires all 48 half-hours for each UTC daily summary.
+Its period-level metric continues to use every aligned half-hour observation.
+
 The alternative historical-error method samples complete joint OOF residual
 days. Pool admission requires the exact 48-period UTC grid in every market;
 having merely 48 rows is insufficient because a duplicate, missing or off-grid
