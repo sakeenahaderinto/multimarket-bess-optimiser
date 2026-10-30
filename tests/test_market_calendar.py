@@ -2,7 +2,9 @@ import numpy as np
 import pandas as pd
 
 from market_calendar import (
+    aggregate_to_efa_blocks,
     apply_dc_price_domain,
+    efa_block_bounds_utc,
     efa_block_groups,
     is_complete_efa_group,
     last_complete_half_hour_start_times,
@@ -77,3 +79,25 @@ def test_complete_efa_group_detection():
     assert not is_complete_efa_group(index, *groups[0])
     assert is_complete_efa_group(index, *groups[1])
     assert not is_complete_efa_group(index, *groups[-1])
+
+
+def test_complete_block_aggregation_retains_dst_short_and_long_auctions():
+    keys = [
+        (pd.Timestamp("2025-03-29").date(), 23),
+        (pd.Timestamp("2025-10-25").date(), 23),
+    ]
+    indexes = [
+        pd.date_range(*efa_block_bounds_utc(key), freq="30min", inclusive="left")
+        for key in keys
+    ]
+    values = pd.Series(
+        np.concatenate(
+            [np.full(len(index), position + 1.0) for position, index in enumerate(indexes)]
+        ),
+        index=indexes[0].append(indexes[1]),
+    )
+
+    result = aggregate_to_efa_blocks(values, complete_only=True)
+
+    assert [len(index) for index in indexes] == [6, 10]
+    assert result.tolist() == [1.0, 2.0]

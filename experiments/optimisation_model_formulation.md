@@ -237,6 +237,11 @@ For every forecast row the latent normal variable is transformed by a two-piece 
 
 DC latent draws and DC quantiles are held constant within EFA blocks.
 
+DC forecast metrics are reported once per exact complete local-time EFA block.
+Completeness is checked against the block's UTC start, end and half-hour grid,
+so six-period spring-transition and ten-period autumn-transition auctions are
+retained while partial or gapped blocks are excluded.
+
 The alternative historical-error method samples complete joint OOF residual
 days. Pool admission requires the exact 48-period UTC grid in every market;
 having merely 48 rows is insufficient because a duplicate, missing or off-grid

@@ -18,7 +18,7 @@ from backtest.engine import DEFAULT_OPT_SETTINGS, _normalise_to_30min, run_backt
 from baselines.scenarios import build_median_scenario, make_naive_scenario_builder
 from features.pipeline_da_hourly import upsample_da_forecast
 from forecasting.base import BaseForecaster
-from market_calendar import efa_block_keys
+from market_calendar import aggregate_to_efa_blocks
 from optimiser.model import validate_cvar_configuration
 from run_backtest import _load_actual, _load_dc_actual, _load_forecast
 
@@ -106,14 +106,12 @@ def _forecast_metrics_one_market(
     ).dropna()
 
     if block_level:
-        aligned["block_key"] = efa_block_keys(aligned.index).to_numpy()
-        aligned["clean_timestamp"] = _filter_clean_timestamps(aligned.index, clean_dates)
-        grouped = aligned.groupby("block_key", sort=True)
-        counts = grouped.size()
-        all_clean = grouped["clean_timestamp"].all()
-        aggregated = grouped[["actual", "q10", "q50", "q90"]].mean()
-        valid = (counts == 8) & all_clean
-        aggregated = aggregated.loc[valid]
+        clean = aligned.loc[_filter_clean_timestamps(aligned.index, clean_dates)]
+        aggregated = aggregate_to_efa_blocks(
+            clean[["actual", "q10", "q50", "q90"]],
+            how="mean",
+            complete_only=True,
+        )
     else:
         aggregated = aligned.loc[_filter_clean_timestamps(aligned.index, clean_dates)]
 

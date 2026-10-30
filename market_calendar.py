@@ -177,18 +177,36 @@ def is_complete_efa_group(index: pd.DatetimeIndex, start: int, end: int) -> bool
 def aggregate_to_efa_blocks(
     values: pd.Series | pd.DataFrame,
     how: str = "mean",
+    *,
+    complete_only: bool = False,
 ) -> pd.Series | pd.DataFrame:
     """Aggregate a timezone-aware series or frame by actual local EFA blocks."""
     if values.empty:
         return values.copy()
-    keys = efa_block_keys(values.index)
-    grouped = values.groupby(keys, sort=True)
+    ordered = values.sort_index()
+    keys = efa_block_keys(ordered.index)
+    grouped = ordered.groupby(keys, sort=True)
     if how == "mean":
         result = grouped.mean()
     elif how == "sum":
         result = grouped.sum(min_count=1)
     else:
         raise ValueError("how must be 'mean' or 'sum'")
+
+    if complete_only:
+        complete_keys: set[tuple[date_type, int]] = set()
+        for key, group in grouped:
+            expected_start, expected_end = efa_block_bounds_utc(key)
+            expected = pd.date_range(
+                expected_start,
+                expected_end,
+                freq=PERIOD,
+                inclusive="left",
+            )
+            if group.index.equals(expected):
+                complete_keys.add(key)
+        result = result.loc[[key in complete_keys for key in result.index]]
+
     block_starts = [efa_block_bounds_utc(key)[0] for key in result.index]
     result.index = pd.DatetimeIndex(block_starts, name="efa_block_start")
     return result.sort_index()

@@ -568,8 +568,12 @@ class BaseForecaster:
         predicted = forecasts.reindex(common)
 
         if self.model_id in {"dc_low", "dc_high"}:
-            actual = aggregate_to_efa_blocks(actual, how="mean")
-            predicted = aggregate_to_efa_blocks(predicted, how="mean")
+            actual = aggregate_to_efa_blocks(actual, how="mean", complete_only=True)
+            predicted = aggregate_to_efa_blocks(
+                predicted,
+                how="mean",
+                complete_only=True,
+            )
             common_blocks = actual.index.intersection(predicted.dropna().index)
             actual = actual.reindex(common_blocks)
             predicted = predicted.reindex(common_blocks)

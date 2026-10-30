@@ -60,6 +60,9 @@ completeness test; duplicate or off-grid residual timestamps are invalid.
 For DA and the BM proxy report MAE, q10 pinball loss, q90 pinball loss, 80 percent interval coverage and Winkler score at their evaluated timestamp resolution.
 
 For DC Low and DC High report the same metrics on complete EFA blocks. Do not count eight duplicated half-hour observations as eight independent auction outcomes.
+Define completeness from the block's exact Europe/London boundaries, not from
+an eight-row rule: valid clock-change auctions can contain six or ten UTC
+half-hours. Exclude partial or internally gapped blocks.
 The DC LightGBM fits and early-stopping evaluations must use inverse EFA-block-size
 row weights, normalized to mean one, so each auction has equal total influence despite
 DST or missing-row differences.
