@@ -262,12 +262,16 @@ def main() -> None:
     results.to_parquet(output_path)
 
     solved = results[~results["solve_failed"].fillna(True)]
+    failures = results[results["solve_failed"].fillna(True)]
     total = float(solved["net_revenue"].sum())
     annualised = total / len(solved) * 365.0 if len(solved) else float("nan")
 
     print("\n" + "=" * 62)
     print(f"Backtest {args.period.upper()} from {start} to {end}")
     print(f"Solved days: {len(solved)} / {len(results)}")
+    print(f"Failed days: {len(failures)}")
+    if not failures.empty and "failure_stage" in failures.columns:
+        print(f"Failures by stage: {failures['failure_stage'].value_counts().to_dict()}")
     print(f"DA revenue: £{solved['da_revenue'].sum():,.2f}")
     print(f"BM SSP proxy revenue: £{solved['bm_proxy_revenue'].sum():,.2f}")
     print(f"DC Low revenue: £{solved['dc_low_revenue'].sum():,.2f}")

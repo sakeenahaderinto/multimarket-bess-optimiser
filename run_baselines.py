@@ -77,7 +77,7 @@ def _metrics(
         "n_evaluated_days": len(solved),
         "n_clean_days": len(clean),
         "n_seeds": seed_count,
-        "total_seed_solve_failures": total_seed_failures,
+        "total_seed_failures": total_seed_failures,
         "total_net_revenue_clean": round(float(net.sum()), 2),
         "annualised_net_revenue_clean": round(_annualise(float(net.sum()), len(net)), 2),
         "avg_net_revenue_per_day_clean": round(float(net.mean()), 2) if len(net) else np.nan,

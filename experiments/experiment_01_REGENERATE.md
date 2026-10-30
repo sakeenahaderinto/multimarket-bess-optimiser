@@ -61,7 +61,7 @@ Report results only on the intersection of clean dates solved by every compared 
 number of eligible calendar days
 number of evaluated clean days
 number and reason for excluded days
-number of solver failures for every seed
+number of failed dates for every seed, separated by `failure_stage`
 total net revenue
 annualised sample mean revenue
 average daily net revenue

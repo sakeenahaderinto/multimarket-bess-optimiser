@@ -278,7 +278,7 @@ $$
 
 ## 13. Backtest rules
 
-Each eligible UTC date is evaluated on an exact 48-period grid. Missing actuals or forecasts cause that date to be rejected. Publication runs should use strict mode or report every skipped and failed date.
+Each eligible UTC date is evaluated on an exact 48-period grid. Missing actuals or forecasts cause that date to be rejected. In non-strict runs the rejected date remains in the result artifact with `solve_failed=true`, `failure_stage="data_validation"`, and the exact reason. Publication runs should use strict mode or report every failed date by stage.
 
 Random seeds are derived from the base seed and calendar date. This means a date receives the same scenario sample even when the requested backtest range changes.
 

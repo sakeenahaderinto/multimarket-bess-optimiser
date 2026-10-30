@@ -260,11 +260,19 @@ def _seed_for_date(base_seed: int, current_date: date) -> int:
     return int(sequence.generate_state(1, dtype=np.uint32)[0])
 
 
-def _failure_row(current_date: date, reason: str) -> dict:
+def _failure_row(
+    current_date: date,
+    reason: str,
+    stage: str,
+    *,
+    state_reset: bool = False,
+    starting_soc: float | None = None,
+) -> dict:
     return {
         "date": current_date,
         "solve_failed": True,
         "failure_reason": reason,
+        "failure_stage": stage,
         "da_revenue": np.nan,
         "bm_proxy_revenue": np.nan,
         "dc_low_revenue": np.nan,
@@ -272,7 +280,9 @@ def _failure_row(current_date: date, reason: str) -> dict:
         "gross_revenue": np.nan,
         "degradation_cost": np.nan,
         "net_revenue": np.nan,
-        "state_reset": False,
+        "state_reset": state_reset,
+        "starting_soc": starting_soc,
+        "ending_soc": np.nan,
     }
 
 
@@ -406,6 +416,14 @@ def run_backtest(
             if strict:
                 raise RuntimeError(f"Backtest data failure on {current_date}: {exc}") from exc
             logger.warning("Skipping %s because %s", current_date, exc)
+            results.append(
+                _failure_row(
+                    current_date,
+                    str(exc),
+                    "data_validation",
+                    starting_soc=current_soc,
+                )
+            )
             continue
 
         assert isinstance(da_window, pd.DataFrame)
@@ -496,6 +514,7 @@ def run_backtest(
                     "date": current_date,
                     "solve_failed": False,
                     "failure_reason": None,
+                    "failure_stage": None,
                     "state_reset": state_reset,
                     "starting_soc": round(current_soc, 8),
                     "ending_soc": round(ending_soc, 8),
@@ -510,7 +529,15 @@ def run_backtest(
             if strict:
                 raise RuntimeError(f"Backtest failed on {current_date}: {exc}") from exc
             logger.exception("Backtest failed on %s", current_date)
-            results.append(_failure_row(current_date, str(exc)))
+            results.append(
+                _failure_row(
+                    current_date,
+                    str(exc),
+                    "scenario_optimisation_or_settlement",
+                    state_reset=state_reset,
+                    starting_soc=current_soc,
+                )
+            )
 
     if not results:
         return pd.DataFrame()

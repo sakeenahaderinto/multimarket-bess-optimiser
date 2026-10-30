@@ -55,6 +55,7 @@ data raises an error rather than silently changing the stochastic model.
 - **Dynamic Containment modelling.** DC commitments held constant across each 4-hour EFA block, a 15-minute energy headroom requirement, and separate discharge-direction and charge-direction power limits for DC Low and DC High. Incomplete EFA blocks at the edges of a midnight-based horizon are disabled by default. This is conservative and avoids committing on a partial block. DC scenario prices use the predecessor auction's zero floor before 1 November 2023 and permit negative prices after the EAC transition.
 - **Probabilistic forecasting.** Quantile LightGBM models under walk-forward cross-validation, with strict lag controls. DC clearing outcomes are grouped by EFA block so one repeated auction result cannot straddle model-fitting and early-stopping validation subsets, and inverse block-size weights give every auction equal total training influence.
 - **Baseline benchmarking.** The full probabilistic model is compared against deterministic baselines (median forecast, previous-day naive, previous-week naive) on a shared clean-date evaluation set.
+- **Auditable backtest failures.** Non-strict runs retain data, scenario, optimisation, and settlement failures as dated result rows with a failure stage and reason; failed dates cannot disappear from aggregate failure counts.
 
 ---
 

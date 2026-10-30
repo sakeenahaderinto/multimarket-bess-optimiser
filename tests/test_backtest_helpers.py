@@ -6,11 +6,21 @@ import pandas as pd
 
 import run_backtest as run_backtest_entry
 from backtest.engine import (
+    DEFAULT_BATTERY,
     _normalise_to_30min,
     _require_exact_grid,
     _seed_for_date,
+    run_backtest,
     settle_revenue,
 )
+
+
+class _AvailableSolver:
+    def available(self, exception_flag=False):
+        del exception_flag
+        return True
+
+    options = {}
 
 
 def test_da_normalisation_fills_only_the_matching_second_half_hour():
@@ -90,3 +100,41 @@ def test_forecast_loader_rejects_crossed_quantiles(
 
     with pytest.raises(ValueError, match="da forecast contains crossed quantiles"):
         run_backtest_entry._load_forecast("da", "oos")
+
+
+def test_non_strict_data_failure_is_recorded_in_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "backtest.engine.pyo.SolverFactory",
+        lambda _name: _AvailableSolver(),
+    )
+    index = pd.date_range("2025-01-01", periods=47, freq="30min", tz="UTC")
+    actual = pd.DataFrame({"value": 1.0}, index=index)
+    forecast = pd.DataFrame(
+        {"q10": 0.0, "q50": 1.0, "q90": 2.0},
+        index=index,
+    )
+
+    result = run_backtest(
+        actual,
+        actual,
+        actual,
+        actual,
+        forecast,
+        forecast,
+        forecast,
+        forecast,
+        battery=DEFAULT_BATTERY,
+        start_date="2025-01-01",
+        end_date="2025-01-01",
+        strict=False,
+        exclude_flagged_dates=False,
+    )
+
+    row = result.loc[pd.Timestamp("2025-01-01").date()]
+    assert bool(row["solve_failed"])
+    assert row["failure_stage"] == "data_validation"
+    assert "missing periods" in row["failure_reason"]
+    assert row["starting_soc"] == DEFAULT_BATTERY["current_soc"]
+    assert pd.isna(row["ending_soc"])
