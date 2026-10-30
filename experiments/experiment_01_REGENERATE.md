@@ -78,6 +78,11 @@ degradation cost
 throughput and equivalent full cycles
 ```
 
+A clean date must have `solve_failed=false`, `da_missing=false`,
+`da_imputed=false`, and `state_reset=false` in every compared strategy. Apply
+this definition to fixed-range diagnostic comparisons as well as the main
+baseline experiment; a successfully solved date is not automatically clean.
+
 An averaged date is eligible only when every requested seed solved it. The
 averaged artifact must retain the union of attempted dates, with partial or
 missing seed results marked as `failure_stage="seed_aggregation"`. Do not

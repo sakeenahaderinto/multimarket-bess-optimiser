@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from backtest.aggregation import aggregate_seed_results
+from backtest.aggregation import aggregate_seed_results, shared_clean_dates
 from backtest.engine import DEFAULT_OPT_SETTINGS, _normalise_to_30min, run_backtest
 from baselines.scenarios import build_median_scenario, make_naive_scenario_builder
 from features.pipeline_da_hourly import upsample_da_forecast
@@ -39,26 +39,6 @@ REVENUE_COLUMNS = [
 
 def _annualise(total: float, days: int) -> float:
     return total / days * 365.0 if days else float("nan")
-
-
-def _shared_clean_dates(results: dict[str, pd.DataFrame]) -> set:
-    sets: list[set] = []
-    for frame in results.values():
-        clean = frame[~frame["solve_failed"].fillna(True)].copy()
-        if "da_imputed" in clean.columns:
-            clean = clean[~clean["da_imputed"].fillna(False)]
-        if "da_missing" in clean.columns:
-            clean = clean[~clean["da_missing"].fillna(False)]
-        if "state_reset" in clean.columns:
-            clean = clean[~clean["state_reset"].fillna(False)]
-        sets.append(set(clean.index))
-
-    if not sets:
-        return set()
-    common = sets[0]
-    for values in sets[1:]:
-        common &= values
-    return common
 
 
 def _metrics(
@@ -297,7 +277,7 @@ def run_all(
     if len(results) != len(strategies):
         raise RuntimeError("At least one strategy did not produce comparable output")
 
-    clean_dates = _shared_clean_dates(results)
+    clean_dates = shared_clean_dates(results)
     if not clean_dates:
         raise RuntimeError("The shared clean-date set is empty")
 

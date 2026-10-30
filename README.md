@@ -212,7 +212,7 @@ multimarket-bess-optimiser/
 | `calibrate_spread.py` | Calibrates the direct spread model's predictions. |
 | `run_baselines.py` | Runs the full copula strategy against a deterministic median baseline and two naive lag baselines (previous-day, previous-week) on the same valid dates, across multiple seeds. |
 | `run_backtest.py` | Runs the stochastic optimiser in walk-forward mode for a single period (CV or OOS), settling each day's decisions against realised prices. |
-| `run_fixed_month_comparison.py` | Compares strategies within a fixed calendar month to isolate regime-specific behaviour, such as high-volatility winter periods. It retains both per-seed and failure-aware averaged artifacts. |
+| `run_fixed_month_comparison.py` | Compares strategies within a fixed calendar month to isolate regime-specific behaviour, such as high-volatility winter periods. It retains both per-seed and failure-aware averaged artifacts and applies the same shared clean-date rule as the main baseline comparison. |
 
 **Diagnostics and experiment scripts**
 

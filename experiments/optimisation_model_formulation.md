@@ -282,7 +282,7 @@ Each eligible UTC date is evaluated on an exact 48-period grid. Missing actuals 
 
 Random seeds are derived from the base seed and calendar date. This means a date receives the same scenario sample even when the requested backtest range changes.
 
-All strategies are compared on the intersection of clean solved dates. Stochastic strategies are repeated over several base seeds. Both seed-level files and averaged files are retained. An averaged date is solved only if every seed solved it; the averaged artifact retains the union of attempted dates and marks partial success as a `seed_aggregation` failure. This prevents seed-specific numerical failures from disappearing through successful-date intersection or from producing a survivor-only revenue mean.
+All strategies are compared on the intersection of clean solved dates. A clean date is successful in every included seed and strategy and has no DA missing-data flag, DA imputation flag or state-continuity reset flag. The same rule applies to the main baseline and fixed-range comparison scripts. Stochastic strategies are repeated over several base seeds. Both seed-level files and averaged files are retained. An averaged date is solved only if every seed solved it; the averaged artifact retains the union of attempted dates and marks partial success as a `seed_aggregation` failure. This prevents seed-specific numerical failures from disappearing through successful-date intersection or from producing a survivor-only revenue mean.
 
 ## 14. Limitations that must remain in a paper
 

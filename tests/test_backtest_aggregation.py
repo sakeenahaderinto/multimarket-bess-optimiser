@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from backtest.aggregation import aggregate_seed_results
+from backtest.aggregation import aggregate_seed_results, shared_clean_dates
 
 REVENUE_COLUMNS = ["net_revenue", "gross_revenue"]
 
@@ -144,3 +144,25 @@ def test_seed_aggregation_treats_absent_date_as_unsuccessful():
     assert result["solve_failed"].all()
     assert result["seed_success_count"].tolist() == [1, 1]
     assert result["net_revenue"].isna().all()
+
+
+def test_shared_clean_dates_excludes_quality_and_state_flags_from_any_strategy():
+    dates = pd.date_range("2025-01-01", periods=4, freq="D").date
+    first = pd.DataFrame(
+        {
+            "solve_failed": [False, False, False, True],
+            "da_missing": [False, True, False, False],
+            "state_reset": [False, False, False, False],
+        },
+        index=dates,
+    )
+    second = pd.DataFrame(
+        {
+            "solve_failed": [False, False, False, False],
+            "da_imputed": [False, False, False, False],
+            "state_reset": [False, False, True, False],
+        },
+        index=dates,
+    )
+
+    assert shared_clean_dates({"first": first, "second": second}) == {dates[0]}

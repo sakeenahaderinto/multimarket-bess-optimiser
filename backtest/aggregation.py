@@ -2,10 +2,36 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 import pandas as pd
+
+QUALITY_EXCLUSION_COLUMNS = ("da_missing", "da_imputed", "state_reset")
+
+
+def clean_result_dates(frame: pd.DataFrame) -> set:
+    """Return solved dates without known data-quality or continuity flags."""
+    if "solve_failed" not in frame.columns:
+        raise ValueError("Backtest result is missing the 'solve_failed' column")
+
+    clean = ~frame["solve_failed"].fillna(True).astype(bool)
+    for column in QUALITY_EXCLUSION_COLUMNS:
+        if column in frame.columns:
+            clean &= ~frame[column].fillna(False).astype(bool)
+    return set(frame.index[clean])
+
+
+def shared_clean_dates(results: Mapping[str, pd.DataFrame]) -> set:
+    """Intersect clean dates across every supplied strategy result."""
+    if not results:
+        return set()
+
+    date_sets = [clean_result_dates(frame) for frame in results.values()]
+    common = date_sets[0].copy()
+    for dates in date_sets[1:]:
+        common &= dates
+    return common
 
 
 def aggregate_seed_results(
@@ -82,7 +108,7 @@ def aggregate_seed_results(
         ]
         result.loc[failed, "failure_stage"] = "seed_aggregation"
 
-    for column in ("state_reset", "da_missing", "da_imputed"):
+    for column in QUALITY_EXCLUSION_COLUMNS:
         if any(column in frame.columns for frame in aligned):
             flags = np.column_stack(
                 [

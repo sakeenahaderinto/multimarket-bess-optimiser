@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from backtest.aggregation import aggregate_seed_results
+from backtest.aggregation import aggregate_seed_results, shared_clean_dates
 from backtest.engine import DEFAULT_OPT_SETTINGS, _normalise_to_30min, run_backtest
 from baselines.scenarios import _block_avg_1d, _col, build_median_scenario
 from features.pipeline_da_hourly import upsample_da_forecast
@@ -292,13 +292,9 @@ def main() -> None:
         averaged.to_parquet(output_directory / f"backtest_{label}.parquet")
         outputs[label] = averaged
 
-    common = None
-    for frame in outputs.values():
-        solved = set(frame[~frame["solve_failed"].fillna(True)].index)
-        common = solved if common is None else common & solved
-    common = common or set()
+    common = shared_clean_dates(outputs)
     if not common:
-        raise RuntimeError("No shared solved dates across strategies")
+        raise RuntimeError("No shared clean dates across strategies")
 
     rows = []
     for label, frame in outputs.items():
@@ -307,6 +303,7 @@ def main() -> None:
 
     comparison = pd.DataFrame(rows).set_index("strategy")
     comparison.to_csv(output_directory / "comparison.csv")
+    print(f"Shared clean dates: {len(common)}")
     print(comparison.to_string())
     print(f"Saved to {output_directory}")
 
