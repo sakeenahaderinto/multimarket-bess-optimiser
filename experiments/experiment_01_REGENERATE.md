@@ -51,6 +51,9 @@ perfect foresight for a clearly labelled upper-bound diagnostic only
 The primary historical-error-path results must use uncensored residual paths. If
 `--error-cap-pct` is used, label the result as a winsorisation sensitivity and
 report the percentile, market-specific cap values, and number of altered cells.
+Admit a residual day to the pool only when DA, BM, DCL and DCH each contain the
+exact 48 UTC half-hours from 00:00 through 23:30. Row count alone is not a
+completeness test; duplicate or off-grid residual timestamps are invalid.
 
 ## Required forecast metrics
 

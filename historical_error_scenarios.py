@@ -19,6 +19,31 @@ logger = logging.getLogger(__name__)
 MIN_POOL_SIZE = 30
 
 
+def _complete_exact_utc_dates(series: pd.Series, source: str) -> set:
+    """Return dates containing exactly the canonical 48 UTC half-hours."""
+    if not isinstance(series.index, pd.DatetimeIndex):
+        raise TypeError(f"{source} residuals must use a DatetimeIndex")
+    if series.index.tz is None:
+        raise ValueError(f"{source} residual index must be timezone-aware")
+
+    values = series.copy()
+    values.index = values.index.tz_convert("UTC")
+    if values.index.has_duplicates:
+        duplicate = values.index[values.index.duplicated(keep=False)][0]
+        raise ValueError(f"{source} residuals contain duplicate timestamp {duplicate}")
+
+    complete: set = set()
+    for value, day in values.groupby(values.index.date):
+        expected = pd.date_range(
+            pd.Timestamp(value, tz="UTC"),
+            periods=48,
+            freq="30min",
+        )
+        if day.sort_index().index.equals(expected):
+            complete.add(value)
+    return complete
+
+
 def _date_offset_minutes(value) -> int:
     timestamp = pd.Timestamp(value, tz="UTC").tz_convert("Europe/London")
     offset = timestamp.utcoffset()
@@ -74,11 +99,12 @@ def build_error_path_pool(
         first = published_before_settlement[published_before_settlement].index[0]
         raise ValueError(f"BM publication time precedes settlement start at {first}")
 
-    def complete_dates(series: pd.Series) -> set:
-        counts = series.groupby(series.index.date).size()
-        return set(counts[counts == 48].index)
-
-    common_dates = set.intersection(*(complete_dates(series) for series in errors.values()))
+    common_dates = set.intersection(
+        *(
+            _complete_exact_utc_dates(series, market)
+            for market, series in errors.items()
+        )
+    )
     valid_dates = sorted(value for value in common_dates if not is_excluded(value))
     if len(valid_dates) < MIN_POOL_SIZE:
         raise ValueError(
@@ -89,7 +115,12 @@ def build_error_path_pool(
     def stack(series: pd.Series) -> np.ndarray:
         rows = []
         for value in valid_dates:
-            row = series[series.index.date == value].sort_index().to_numpy(dtype=float)
+            expected = pd.date_range(
+                pd.Timestamp(value, tz="UTC"),
+                periods=48,
+                freq="30min",
+            )
+            row = series.reindex(expected).to_numpy(dtype=float)
             if row.shape != (48,):
                 raise RuntimeError(f"Unexpected path shape {row.shape} for {value}")
             rows.append(row)

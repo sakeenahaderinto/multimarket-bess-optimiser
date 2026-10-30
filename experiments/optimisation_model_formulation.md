@@ -237,6 +237,11 @@ For every forecast row the latent normal variable is transformed by a two-piece 
 
 DC latent draws and DC quantiles are held constant within EFA blocks.
 
+The alternative historical-error method samples complete joint OOF residual
+days. Pool admission requires the exact 48-period UTC grid in every market;
+having merely 48 rows is insufficient because a duplicate, missing or off-grid
+timestamp would misalign the positional residual path.
+
 The DC price domain is regime-aware. Delivery periods before 1 November 2023
 retain the predecessor auction's zero lower bound. From the EAC transition onward,
 negative DCL and DCH prices are valid and are not truncated. This rule is applied to

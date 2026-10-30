@@ -228,7 +228,7 @@ multimarket-bess-optimiser/
 
 | Script | Description |
 |---|---|
-| `historical_error_scenarios.py` | Historical error-path scenario generator. Samples complete joint forecast-error days (DA, BM, DC Low, DC High) from a pool, preserving temporal and cross-market dependence by construction rather than through an estimated correlation matrix. Paths are uncensored by default; residual winsorisation is available only as an explicit sensitivity option. |
+| `historical_error_scenarios.py` | Historical error-path scenario generator. Samples joint forecast-error days only when every market has the exact 48-period UTC half-hour grid, preserving temporal and cross-market dependence by construction rather than through an estimated correlation matrix. Paths are uncensored by default; residual winsorisation is available only as an explicit sensitivity option. |
 | `check_q50_spread_sign.py` | Tests whether BM-DA q50 spread sign mismatches are a systematic, volatility-conditional failure or an isolated event, by splitting daily sign accuracy by volatility quartile. |
 | `check_pool_spike_magnitude.py` | Compares the error pool's typical magnitude in the 16:00–19:00 spike window against the realised spread on a target day, to test whether passivity in the copula strategy is explained by the pool lacking large enough errors. |
 | `sanity_check_error_pool.py` | Pre-flight check of the error-path pool: size, magnitude plausibility, shape of sampled paths, and one full scenario construction. |

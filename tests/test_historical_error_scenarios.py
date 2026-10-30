@@ -14,6 +14,31 @@ def forecast(index: pd.DatetimeIndex, value: float = 0.0) -> pd.DataFrame:
     return pd.DataFrame({"q50": np.full(len(index), value)}, index=index)
 
 
+def test_complete_error_day_requires_exact_utc_half_hour_grid() -> None:
+    exact = pd.date_range("2024-01-01", periods=48, freq="30min", tz="UTC")
+    off_grid = exact.delete(-1).append(
+        pd.DatetimeIndex([pd.Timestamp("2024-01-01 23:45Z")])
+    )
+
+    assert historical._complete_exact_utc_dates(
+        pd.Series(np.zeros(48), index=exact),
+        "DA",
+    ) == {pd.Timestamp("2024-01-01").date()}
+    assert not historical._complete_exact_utc_dates(
+        pd.Series(np.zeros(48), index=off_grid),
+        "DA",
+    )
+
+
+def test_error_path_pool_rejects_duplicate_residual_timestamps() -> None:
+    index = pd.date_range("2024-01-01", periods=48, freq="30min", tz="UTC")
+    duplicated = index.delete(-1).append(pd.DatetimeIndex([index[-2]])).sort_values()
+    series = pd.Series(np.zeros(48), index=duplicated)
+
+    with pytest.raises(ValueError, match="duplicate timestamp.*23:00:00"):
+        historical._complete_exact_utc_dates(series, "BM")
+
+
 def test_error_pool_records_when_each_complete_bm_path_was_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
