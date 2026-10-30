@@ -75,6 +75,78 @@ def test_dc_outer_validation_rejects_shared_efa_block() -> None:
         )
 
 
+def test_dc_sample_weights_give_each_efa_block_equal_total_weight() -> None:
+    index = pd.DatetimeIndex(
+        [
+            "2024-01-01 07:00Z",
+            "2024-01-01 07:30Z",
+            "2024-01-01 08:00Z",
+            "2024-01-01 11:00Z",
+            "2024-01-01 11:30Z",
+        ]
+    )
+    weights = DCLowForecaster()._sample_weight(index)
+    groups = efa_block_keys(index)
+    totals = pd.Series(weights).groupby(groups).sum()
+
+    assert weights.mean() == pytest.approx(1.0)
+    assert totals.nunique() == 1
+
+
+def test_dc_fit_passes_group_weights_to_lightgbm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class WeightedFakeModel:
+        instances: list["WeightedFakeModel"] = []
+
+        def __init__(self, **_params: object) -> None:
+            self.best_iteration_ = 9
+            self.sample_weight = None
+            self.eval_sample_weight = None
+            self.instances.append(self)
+
+        def fit(
+            self,
+            _x: pd.DataFrame,
+            _y: pd.Series,
+            *,
+            sample_weight=None,
+            eval_X=None,
+            eval_y=None,
+            eval_sample_weight=None,
+            callbacks=None,
+        ) -> "WeightedFakeModel":
+            del eval_X, eval_y, callbacks
+            self.sample_weight = sample_weight
+            self.eval_sample_weight = eval_sample_weight
+            return self
+
+        def predict(self, x: pd.DataFrame) -> np.ndarray:
+            return np.zeros(len(x))
+
+    monkeypatch.setattr(base.lgb, "LGBMRegressor", WeightedFakeModel)
+    monkeypatch.setattr(base.lgb, "early_stopping", lambda **_kwargs: object())
+    rows = frame(pd.date_range("2024-01-01 03:00", periods=24, freq="30min", tz="UTC"))
+    forecaster = DCLowForecaster()
+
+    forecaster._fit_quantile(
+        0.5,
+        rows.iloc[:8][["feature"]],
+        rows.iloc[:8]["target"],
+        rows.iloc[8:16][["feature"]],
+        rows.iloc[8:16]["target"],
+        rows.iloc[:16][["feature"]],
+        rows.iloc[:16]["target"],
+        rows.iloc[16:][["feature"]],
+    )
+
+    selection, refit = WeightedFakeModel.instances
+    assert selection.sample_weight is not None
+    assert selection.eval_sample_weight is not None
+    assert len(selection.eval_sample_weight) == 1
+    assert refit.sample_weight is not None
+
+
 def test_inner_validation_requires_enough_fit_and_tuning_rows() -> None:
     forecaster = SmallForecaster()
     too_short = frame(pd.date_range("2024-01-01", periods=4, freq="30min", tz="UTC"))

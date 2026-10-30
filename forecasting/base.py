@@ -257,6 +257,11 @@ class BaseForecaster:
                 "grouped outcomes must remain indivisible"
             )
 
+    def _sample_weight(self, index: pd.DatetimeIndex) -> np.ndarray | None:
+        """Return optional row weights for model fitting and early stopping."""
+        del index
+        return None
+
     def _training_rows_available_by(
         self,
         df: pd.DataFrame,
@@ -312,12 +317,20 @@ class BaseForecaster:
             alpha=q,
             n_estimators=CV_N_ESTIMATORS,
         )
+        selection_fit_kwargs: dict[str, object] = {}
+        inner_train_weight = self._sample_weight(x_inner_train.index)
+        inner_validation_weight = self._sample_weight(x_inner_validation.index)
+        if inner_train_weight is not None:
+            selection_fit_kwargs["sample_weight"] = inner_train_weight
+        if inner_validation_weight is not None:
+            selection_fit_kwargs["eval_sample_weight"] = [inner_validation_weight]
         selection_model.fit(
             x_inner_train,
             y_inner_train,
             eval_X=x_inner_validation,
             eval_y=y_inner_validation,
             callbacks=[lgb.early_stopping(stopping_rounds=20, verbose=False)],
+            **selection_fit_kwargs,
         )
         best_iteration = int(selection_model.best_iteration_ or CV_N_ESTIMATORS)
 
@@ -326,7 +339,11 @@ class BaseForecaster:
             alpha=q,
             n_estimators=best_iteration,
         )
-        refit_model.fit(x_refit, y_refit)
+        refit_weight = self._sample_weight(x_refit.index)
+        if refit_weight is None:
+            refit_model.fit(x_refit, y_refit)
+        else:
+            refit_model.fit(x_refit, y_refit, sample_weight=refit_weight)
         predictions = refit_model.predict(x_outer_validation)
         return refit_model, predictions, best_iteration
 
@@ -493,7 +510,11 @@ class BaseForecaster:
                 alpha=q,
                 n_estimators=best_n_estimators[q],
             )
-            model.fit(x_full, y_full)
+            full_weight = self._sample_weight(x_full.index)
+            if full_weight is None:
+                model.fit(x_full, y_full)
+            else:
+                model.fit(x_full, y_full, sample_weight=full_weight)
             final_models[q] = model
 
         return final_models, oof_df

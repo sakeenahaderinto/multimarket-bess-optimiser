@@ -47,6 +47,9 @@ report the percentile, market-specific cap values, and number of altered cells.
 For DA and the BM proxy report MAE, q10 pinball loss, q90 pinball loss, 80 percent interval coverage and Winkler score at their evaluated timestamp resolution.
 
 For DC Low and DC High report the same metrics on complete EFA blocks. Do not count eight duplicated half-hour observations as eight independent auction outcomes.
+The DC LightGBM fits and early-stopping evaluations must use inverse EFA-block-size
+row weights, normalized to mean one, so each auction has equal total influence despite
+DST or missing-row differences.
 
 For the direct spread model also report sign accuracy and magnitude-weighted sign accuracy at period, EFA-block and daily levels.
 
